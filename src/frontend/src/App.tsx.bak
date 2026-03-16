@@ -1,0 +1,2615 @@
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Slider } from "@/components/ui/slider";
+import { Toaster } from "@/components/ui/sonner";
+import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Bold,
+  Calendar,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  FlipHorizontal2,
+  FlipVertical2,
+  ImagePlus,
+  Italic,
+  Layers,
+  Move,
+  Printer,
+  RotateCcw,
+  Smile,
+  Trash2,
+  Type,
+  Underline,
+} from "lucide-react";
+import { AnimatePresence, motion } from "motion/react";
+import { useCallback, useRef, useState } from "react";
+import { toast } from "sonner";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type FilterType = "original" | "bw" | "sepia" | "vintage" | "fade";
+type LayoutType = "4cut" | "4r" | "combo";
+type DatePos = "tl" | "tr" | "bl" | "br";
+type FramePreset = "clean" | "film" | "vintage";
+type LogoPosition =
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right"
+  | "center";
+
+interface SlotState {
+  imageUrl: string | null;
+  zoom: number;
+  panX: number;
+  panY: number;
+  rotation: number;
+  flipH: boolean;
+  flipV: boolean;
+  filter: FilterType;
+  brightness: number;
+  contrast: number;
+  saturation: number;
+  temperature: number;
+  shadow: number;
+  vignette: number;
+}
+
+interface TextOverlay {
+  id: string;
+  text: string;
+  fontSize: number;
+  color: string;
+  fontFamily: string;
+  x: number;
+  y: number;
+  rotation: number;
+  bold: boolean;
+  italic: boolean;
+  underline: boolean;
+}
+
+interface StickerItem {
+  id: string;
+  emoji: string;
+  x: number;
+  y: number;
+  size: number;
+  rotation: number;
+}
+
+// ─── Layout dimensions ────────────────────────────────────────────────────────
+const SLOT_W_4CUT = 220;
+const SLOT_H_4CUT = 165;
+const SLOT_W_4R = 300;
+const SLOT_H_4R = 450;
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+const defaultSlot = (): SlotState => ({
+  imageUrl: null,
+  zoom: 1,
+  panX: 0,
+  panY: 0,
+  rotation: 0,
+  flipH: false,
+  flipV: false,
+  filter: "original",
+  brightness: 100,
+  contrast: 100,
+  saturation: 100,
+  temperature: 0,
+  shadow: 0,
+  vignette: 0,
+});
+
+const getSlotCount = (layout: LayoutType) => {
+  if (layout === "4cut") return 4;
+  if (layout === "4r") return 2;
+  return 6;
+};
+
+const getFilterCSS = (
+  filter: FilterType,
+  slot?: Partial<SlotState>,
+): string => {
+  const brightness = slot?.brightness ?? 100;
+  const contrast = slot?.contrast ?? 100;
+  const saturation = slot?.saturation ?? 100;
+  const temperature = slot?.temperature ?? 0;
+  let base = `brightness(${brightness / 100}) contrast(${contrast / 100}) saturate(${saturation / 100})`;
+  if (temperature > 0) {
+    base += ` sepia(${temperature * 0.005}) saturate(${1 + temperature * 0.003})`;
+  } else if (temperature < 0) {
+    base += ` hue-rotate(${temperature * 0.3}deg) saturate(${1 + Math.abs(temperature) * 0.002})`;
+  }
+  switch (filter) {
+    case "bw":
+      return `${base} grayscale(1)`;
+    case "sepia":
+      return `${base} sepia(0.85)`;
+    case "vintage":
+      return `${base} sepia(0.4) contrast(1.1) brightness(1.05) saturate(0.8) hue-rotate(-5deg)`;
+    case "fade":
+      return `${base} brightness(1.12) contrast(0.88) saturate(0.7) opacity(0.88)`;
+    default:
+      return base;
+  }
+};
+
+const getFilterCanvasCSS = (
+  filter: FilterType,
+  slot?: Partial<SlotState>,
+): string => {
+  const brightness = slot?.brightness ?? 100;
+  const contrast = slot?.contrast ?? 100;
+  const saturation = slot?.saturation ?? 100;
+  const temperature = slot?.temperature ?? 0;
+  let base = `brightness(${brightness / 100}) contrast(${contrast / 100}) saturate(${saturation / 100})`;
+  if (temperature > 0) {
+    base += ` sepia(${temperature * 0.005}) saturate(${1 + temperature * 0.003})`;
+  } else if (temperature < 0) {
+    base += ` hue-rotate(${temperature * 0.3}deg) saturate(${1 + Math.abs(temperature) * 0.002})`;
+  }
+  switch (filter) {
+    case "bw":
+      return `${base} grayscale(1)`;
+    case "sepia":
+      return `${base} sepia(0.85)`;
+    case "vintage":
+      return `${base} sepia(0.4) contrast(1.1) brightness(1.05) saturate(0.8)`;
+    case "fade":
+      return `${base} brightness(1.12) contrast(0.88) saturate(0.7)`;
+    default:
+      return base;
+  }
+};
+
+// Pastel color palettes
+const PASTEL_BG_COLORS = [
+  { name: "화이트", hex: "#FFFFFF" },
+  { name: "아이보리", hex: "#FAF7F2" },
+  { name: "블러시", hex: "#F9EEE8" },
+  { name: "로즈", hex: "#F5DDD5" },
+  { name: "라벤더", hex: "#EDE8F5" },
+  { name: "민트", hex: "#E8F5EE" },
+  { name: "스카이", hex: "#E8F0FA" },
+  { name: "샌드", hex: "#F5F0E8" },
+  { name: "세이지", hex: "#E8EDE5" },
+  { name: "차콜", hex: "#2D2D2D" },
+];
+
+const PASTEL_BORDER_COLORS = [
+  { name: "없음", hex: "transparent" },
+  { name: "화이트", hex: "#FFFFFF" },
+  { name: "크림", hex: "#F7F3EC" },
+  { name: "블러시핑크", hex: "#F2D4CB" },
+  { name: "로즈", hex: "#ECC4BA" },
+  { name: "라벤더", hex: "#D9D0EF" },
+  { name: "민트", hex: "#C8E8D4" },
+  { name: "파우더블루", hex: "#C5D8F5" },
+  { name: "토프", hex: "#D4CEC6" },
+  { name: "웜그레이", hex: "#C8C4BE" },
+  { name: "블랙", hex: "#1A1A1A" },
+];
+
+const STICKER_EMOJIS = [
+  "❤️",
+  "🩷",
+  "🧡",
+  "💛",
+  "💚",
+  "💙",
+  "💜",
+  "🖤",
+  "🤍",
+  "💕",
+  "💗",
+  "💓",
+  "💞",
+  "💝",
+  "💟",
+  "⭐",
+  "🌸",
+  "💫",
+  "✨",
+  "🎞",
+  "📷",
+  "🎀",
+  "🌙",
+  "💎",
+  "🦋",
+];
+
+const FRAME_PRESETS: Record<
+  FramePreset,
+  { borderColor: string; bgColor: string; name: string }
+> = {
+  clean: { borderColor: "#ffffff", bgColor: "#ffffff", name: "클린" },
+  film: { borderColor: "#1a1a1a", bgColor: "#111111", name: "필름" },
+  vintage: { borderColor: "#e8dcc8", bgColor: "#f5edd6", name: "빈티지" },
+};
+
+const FILTERS: { id: FilterType; label: string }[] = [
+  { id: "original", label: "원본" },
+  { id: "bw", label: "흑백" },
+  { id: "sepia", label: "세피아" },
+  { id: "vintage", label: "빈티지" },
+  { id: "fade", label: "페이드" },
+];
+
+interface CheckPattern {
+  id: string;
+  name: string;
+  css: string;
+}
+
+const CHECK_PATTERNS: CheckPattern[] = [
+  {
+    id: "bw-small",
+    name: "흑백 체크",
+    css: "repeating-conic-gradient(#222 0% 25%, #fff 0% 50%) 0 0 / 16px 16px",
+  },
+  {
+    id: "pink-white",
+    name: "핑크 체크",
+    css: "repeating-conic-gradient(#f9c4d2 0% 25%, #fff0f4 0% 50%) 0 0 / 16px 16px",
+  },
+  {
+    id: "blue-white",
+    name: "블루 체크",
+    css: "repeating-conic-gradient(#bfdbfe 0% 25%, #eff6ff 0% 50%) 0 0 / 16px 16px",
+  },
+  {
+    id: "bw-large",
+    name: "버팔로 체크",
+    css: "repeating-conic-gradient(#1a1a1a 0% 25%, #ffffff 0% 50%) 0 0 / 40px 40px",
+  },
+  {
+    id: "polka-dot",
+    name: "땡땡이",
+    css: "radial-gradient(circle, #f472b6 30%, transparent 30%) 0 0 / 28px 28px, radial-gradient(circle, #f472b6 30%, transparent 30%) 14px 14px / 28px 28px #fdf2f8",
+  },
+  {
+    id: "gingham",
+    name: "깅엄 체크",
+    css: "repeating-linear-gradient(0deg, rgba(74,222,128,0.5) 0, rgba(74,222,128,0.5) 12px, transparent 12px, transparent 24px), repeating-linear-gradient(90deg, rgba(74,222,128,0.5) 0, rgba(74,222,128,0.5) 12px, transparent 12px, transparent 24px) 0 0/24px 24px #f0fdf4",
+  },
+];
+
+const TODAY = new Date();
+const DATE_STR = `${TODAY.getFullYear()}.${String(TODAY.getMonth() + 1).padStart(2, "0")}.${String(TODAY.getDate()).padStart(2, "0")}`;
+
+const LOGO_POSITION_LABELS: Record<LogoPosition, string> = {
+  "top-left": "좌상단",
+  "top-right": "우상단",
+  "bottom-left": "좌하단",
+  "bottom-right": "우하단",
+  center: "가운데",
+};
+
+const getLogoStyle = (
+  pos: LogoPosition,
+  color: string,
+): React.CSSProperties => {
+  const base: React.CSSProperties = {
+    position: "absolute",
+    fontFamily: "'Plus Jakarta Sans', sans-serif",
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: "0.25em",
+    pointerEvents: "none",
+    zIndex: 5,
+    whiteSpace: "nowrap",
+    color,
+  };
+  switch (pos) {
+    case "top-left":
+      return { ...base, top: 8, left: 8 };
+    case "top-right":
+      return { ...base, top: 8, right: 8 };
+    case "bottom-left":
+      return { ...base, bottom: 8, left: 8 };
+    case "center":
+      return {
+        ...base,
+        top: "50%",
+        left: "50%",
+        transform: "translate(-50%,-50%)",
+      };
+    default:
+      return { ...base, bottom: 8, right: 8 };
+  }
+};
+
+// ─── Main App ─────────────────────────────────────────────────────────────────
+
+export default function App() {
+  const [layout, setLayout] = useState<LayoutType>("4cut");
+  const [slots, setSlots] = useState<SlotState[]>(() =>
+    Array.from({ length: 4 }, defaultSlot),
+  );
+  const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // Frame
+  const [borderColor, setBorderColor] = useState("#ffffff");
+  const [borderWidth, setBorderWidth] = useState(8);
+  const [bgColor, setBgColor] = useState("#ffffff");
+  const [bgPattern, setBgPattern] = useState<string | null>(null);
+  const [framePreset, setFramePreset] = useState<FramePreset>("clean");
+
+  // Logo
+  const [logoEnabled, setLogoEnabled] = useState(true);
+  const [logoPosition, setLogoPosition] =
+    useState<LogoPosition>("bottom-right");
+  const [logoColor, setLogoColor] = useState("#888888");
+
+  // Overlay: date
+  const [dateEnabled, setDateEnabled] = useState(false);
+  const [datePos, setDatePos] = useState<DatePos>("br");
+
+  // Overlay: text
+  const [textOverlays, setTextOverlays] = useState<TextOverlay[]>([]);
+  const [newText, setNewText] = useState("");
+  const [newTextSize, setNewTextSize] = useState(18);
+  const [newTextColor, setNewTextColor] = useState("#ffffff");
+  const [newTextBold, setNewTextBold] = useState(false);
+  const [newTextItalic, setNewTextItalic] = useState(false);
+  const [newTextUnderline, setNewTextUnderline] = useState(false);
+  const [newTextFont, setNewTextFont] = useState("sans-serif");
+
+  // Overlay: stickers
+  const [stickers, setStickers] = useState<StickerItem[]>([]);
+
+  const compositionRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pendingSlotRef = useRef<number | null>(null);
+
+  // ── Layout change
+  const handleLayoutChange = useCallback((l: LayoutType) => {
+    setLayout(l);
+    const count = getSlotCount(l);
+    setSlots((prev) =>
+      Array.from({ length: count }, (_, i) => prev[i] ?? defaultSlot()),
+    );
+    setSelectedSlot(null);
+  }, []);
+
+  // ── Slot update
+  const updateSlot = useCallback((idx: number, patch: Partial<SlotState>) => {
+    setSlots((prev) =>
+      prev.map((s, i) => (i === idx ? { ...s, ...patch } : s)),
+    );
+  }, []);
+
+  // ── Text overlay update
+  const updateTextOverlay = useCallback(
+    (id: string, patch: Partial<TextOverlay>) => {
+      setTextOverlays((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, ...patch } : t)),
+      );
+    },
+    [],
+  );
+
+  // ── Sticker update
+  const updateSticker = useCallback(
+    (id: string, patch: Partial<StickerItem>) => {
+      setStickers((prev) =>
+        prev.map((s) => (s.id === id ? { ...s, ...patch } : s)),
+      );
+    },
+    [],
+  );
+
+  const sel = selectedSlot !== null ? slots[selectedSlot] : null;
+
+  // ── Upload
+  const openUpload = (idx: number) => {
+    pendingSlotRef.current = idx;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || pendingSlotRef.current === null) return;
+    const url = URL.createObjectURL(file);
+    updateSlot(pendingSlotRef.current, {
+      imageUrl: url,
+      panX: 0,
+      panY: 0,
+      zoom: 1,
+      rotation: 0,
+    });
+    setSelectedSlot(pendingSlotRef.current);
+    e.target.value = "";
+  };
+
+  // ── Frame preset
+  const applyPreset = (p: FramePreset) => {
+    setFramePreset(p);
+    setBorderColor(FRAME_PRESETS[p].borderColor);
+    setBgColor(FRAME_PRESETS[p].bgColor);
+    setBgPattern(null);
+  };
+
+  // ── Add text
+  const addText = () => {
+    if (!newText.trim()) return;
+    setTextOverlays((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        text: newText.trim(),
+        fontSize: newTextSize,
+        color: newTextColor,
+        fontFamily: newTextFont,
+        x: 10,
+        y: 10,
+        rotation: 0,
+        bold: newTextBold,
+        italic: newTextItalic,
+        underline: newTextUnderline,
+      },
+    ]);
+    setNewText("");
+  };
+
+  // ── Add sticker
+  const addSticker = (emoji: string) => {
+    setStickers((prev) => [
+      ...prev,
+      {
+        id: Date.now().toString(),
+        emoji,
+        x: 30 + Math.random() * 40,
+        y: 30 + Math.random() * 40,
+        size: 32,
+        rotation: 0,
+      },
+    ]);
+  };
+
+  // ── Export canvas
+  const handleExport = async () => {
+    const comp = compositionRef.current;
+    if (!comp) return;
+    const toastId = toast.loading("이미지 생성 중...");
+    try {
+      const compRect = comp.getBoundingClientRect();
+      const scale = Math.max(3, 2480 / compRect.width);
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(compRect.width * scale);
+      canvas.height = Math.round(compRect.height * scale);
+      const ctx = canvas.getContext("2d", { alpha: false })!;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.scale(scale, scale);
+
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, compRect.width, compRect.height);
+
+      const slotEls = comp.querySelectorAll<HTMLElement>("[data-slot-index]");
+      const drawPromises: Promise<void>[] = [];
+
+      for (const el of slotEls) {
+        const idx = Number.parseInt(el.getAttribute("data-slot-index") ?? "0");
+        const slot = slots[idx];
+        const r = el.getBoundingClientRect();
+        const x = r.left - compRect.left;
+        const y = r.top - compRect.top;
+        const w = r.width;
+        const h = r.height;
+
+        if (!slot?.imageUrl) {
+          ctx.fillStyle = "#d0d0d0";
+          ctx.fillRect(x, y, w, h);
+          continue;
+        }
+
+        const p = new Promise<void>((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(x, y, w, h);
+            ctx.clip();
+
+            const imgAr = img.naturalWidth / img.naturalHeight;
+            const slotAr = w / h;
+            const visualZoom = slot.zoom * 1.1;
+            const coverScale =
+              imgAr > slotAr ? h / img.naturalHeight : w / img.naturalWidth;
+            const drawW = img.naturalWidth * coverScale * visualZoom;
+            const drawH = img.naturalHeight * coverScale * visualZoom;
+
+            const cx = x + w / 2 + slot.panX;
+            const cy = y + h / 2 + slot.panY;
+            ctx.translate(cx, cy);
+            ctx.scale(slot.flipH ? -1 : 1, slot.flipV ? -1 : 1);
+            ctx.rotate((slot.rotation * Math.PI) / 180);
+
+            const f = getFilterCanvasCSS(slot.filter, slot);
+            if (f !== "none") ctx.filter = f;
+            ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
+            ctx.filter = "none";
+            ctx.restore();
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = slot.imageUrl!;
+        });
+        drawPromises.push(p);
+      }
+
+      await Promise.all(drawPromises);
+
+      // Date stamp
+      if (dateEnabled) {
+        ctx.save();
+        ctx.font = "italic 600 13px serif";
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        ctx.shadowColor = "rgba(0,0,0,0.7)";
+        ctx.shadowBlur = 4;
+        const tw = ctx.measureText(DATE_STR).width;
+        const pad = 14;
+        const tx =
+          datePos === "tr" || datePos === "br"
+            ? compRect.width - tw - pad
+            : pad;
+        const ty =
+          datePos === "bl" || datePos === "br"
+            ? compRect.height - 26
+            : pad + 13;
+        ctx.fillText(DATE_STR, tx, ty);
+        ctx.restore();
+      }
+
+      // Text overlays
+      for (const t of textOverlays) {
+        ctx.save();
+        const weight = t.bold ? "bold" : "600";
+        const style = t.italic ? "italic" : "";
+        ctx.font = `${style} ${weight} ${t.fontSize}px sans-serif`.trim();
+        ctx.fillStyle = t.color;
+        ctx.shadowColor = "rgba(0,0,0,0.5)";
+        ctx.shadowBlur = 4;
+        const tx = (t.x / 100) * compRect.width;
+        const ty = (t.y / 100) * compRect.height;
+        ctx.translate(tx, ty);
+        if (t.rotation) ctx.rotate((t.rotation * Math.PI) / 180);
+        ctx.fillText(t.text, 0, t.fontSize);
+        if (t.underline) {
+          const tw2 = ctx.measureText(t.text).width;
+          ctx.beginPath();
+          ctx.moveTo(0, t.fontSize + 2);
+          ctx.lineTo(tw2, t.fontSize + 2);
+          ctx.strokeStyle = t.color;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        }
+        ctx.restore();
+      }
+
+      // Stickers
+      for (const s of stickers) {
+        ctx.save();
+        ctx.font = `${s.size}px serif`;
+        const sx = (s.x / 100) * compRect.width;
+        const sy = (s.y / 100) * compRect.height;
+        ctx.translate(sx, sy);
+        if (s.rotation) ctx.rotate((s.rotation * Math.PI) / 180);
+        ctx.fillText(s.emoji, -s.size / 2, s.size / 2);
+        ctx.restore();
+      }
+
+      // Logo
+      if (logoEnabled) {
+        ctx.save();
+        ctx.font = "700 9px sans-serif";
+        ctx.fillStyle = logoColor;
+        const logoText = "SONA STUDIO";
+        const lw = ctx.measureText(logoText).width;
+        const pad2 = 8;
+        let lx = 0;
+        let ly = 0;
+        switch (logoPosition) {
+          case "top-left":
+            lx = pad2;
+            ly = 12 + pad2;
+            break;
+          case "top-right":
+            lx = compRect.width - lw - pad2;
+            ly = 12 + pad2;
+            break;
+          case "bottom-left":
+            lx = pad2;
+            ly = compRect.height - pad2;
+            break;
+          case "center":
+            lx = (compRect.width - lw) / 2;
+            ly = compRect.height / 2;
+            break;
+          default:
+            lx = compRect.width - lw - pad2;
+            ly = compRect.height - pad2;
+            break;
+        }
+        ctx.fillText(logoText, lx, ly);
+        ctx.restore();
+      }
+
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.download = `sona-studio-${Date.now()}.jpg`;
+          a.href = url;
+          a.click();
+          URL.revokeObjectURL(url);
+          toast.dismiss(toastId);
+          toast.success("고화질 저장 완료! (300DPI급)");
+        },
+        "image/jpeg",
+        0.97,
+      );
+    } catch {
+      toast.dismiss(toastId);
+      toast.error("저장에 실패했습니다.");
+    }
+  };
+
+  // ─── Render ───────────────────────────────────────────────────────────────
+
+  return (
+    <div className="min-h-screen flex flex-col bg-background font-sans">
+      <Toaster position="top-center" />
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+
+      {/* Header */}
+      <header className="no-print sticky top-0 z-50 border-b border-border bg-card/95 backdrop-blur-sm">
+        <div className="flex items-center justify-between px-6 py-3 gap-4">
+          <div className="flex items-center gap-3 flex-shrink-0">
+            <Layers className="w-5 h-5 text-primary" strokeWidth={1.5} />
+            <span className="font-display text-xl tracking-[0.2em] text-foreground">
+              SONA STUDIO
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+            {(["4cut", "4r", "combo"] as LayoutType[]).map((l, i) => (
+              <button
+                type="button"
+                key={l}
+                data-ocid={`layout.item.${i + 1}`}
+                onClick={() => handleLayoutChange(l)}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-all ${
+                  layout === l
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {l === "4cut" ? "4컷" : l === "4r" ? "4R" : "4컷+4R 콤보"}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => window.print()}
+              data-ocid="studio.secondary_button"
+              className="gap-2 border-border text-foreground hover:bg-accent"
+            >
+              <Printer className="w-4 h-4" />
+              인쇄
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleExport}
+              data-ocid="studio.primary_button"
+              className="gap-2 bg-primary text-primary-foreground hover:opacity-90"
+            >
+              <Download className="w-4 h-4" />
+              저장
+            </Button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main */}
+      <main className="flex flex-1 overflow-hidden relative">
+        {/* Canvas area */}
+        <div className="flex-1 flex items-start justify-center overflow-auto p-8 transition-all duration-300">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={layout}
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ duration: 0.22 }}
+            >
+              {/* A4 Paper wrapper */}
+              <div
+                style={{
+                  background: "white",
+                  boxShadow:
+                    "0 4px 24px rgba(0,0,0,0.13), 0 1px 6px rgba(0,0,0,0.07)",
+                  padding: 40,
+                  display: "inline-flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minWidth: 480,
+                  minHeight: 600,
+                  position: "relative",
+                }}
+              >
+                {/* A4 label */}
+                <span
+                  style={{
+                    position: "absolute",
+                    top: 6,
+                    right: 10,
+                    fontSize: 9,
+                    color: "#ccc",
+                    fontFamily: "monospace",
+                    letterSpacing: "0.08em",
+                    pointerEvents: "none",
+                  }}
+                >
+                  A4
+                </span>
+                <StudioComposition
+                  compositionRef={compositionRef}
+                  layout={layout}
+                  slots={slots}
+                  selectedSlot={selectedSlot}
+                  borderWidth={borderWidth}
+                  bgColor={bgColor}
+                  bgPattern={bgPattern}
+                  dateEnabled={dateEnabled}
+                  datePos={datePos}
+                  textOverlays={textOverlays}
+                  stickers={stickers}
+                  logoEnabled={logoEnabled}
+                  logoPosition={logoPosition}
+                  logoColor={logoColor}
+                  onSlotClick={(idx) => {
+                    if (!slots[idx].imageUrl) openUpload(idx);
+                    else setSelectedSlot(idx);
+                  }}
+                  onUpload={openUpload}
+                  onUpdateSlot={updateSlot}
+                  onUpdateText={updateTextOverlay}
+                  onUpdateSticker={updateSticker}
+                  onDeleteText={(id) =>
+                    setTextOverlays((prev) => prev.filter((t) => t.id !== id))
+                  }
+                  onDeleteSticker={(id) =>
+                    setStickers((prev) => prev.filter((s) => s.id !== id))
+                  }
+                />
+              </div>
+            </motion.div>
+          </AnimatePresence>
+        </div>
+
+        {/* Sidebar toggle button */}
+        <button
+          type="button"
+          data-ocid="sidebar.toggle"
+          onClick={() => setSidebarOpen((v) => !v)}
+          className="no-print absolute right-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center w-6 h-12 bg-card border border-border rounded-l-lg shadow-md hover:bg-accent transition-all duration-300"
+          style={{ right: sidebarOpen ? "288px" : "0px" }}
+          title={sidebarOpen ? "패널 숨기기" : "패널 보기"}
+        >
+          {sidebarOpen ? (
+            <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+          ) : (
+            <ChevronLeft className="w-3.5 h-3.5 text-muted-foreground" />
+          )}
+        </button>
+
+        {/* Right panel */}
+        <aside
+          className="no-print border-l border-border bg-card flex flex-col shrink-0 overflow-hidden transition-all duration-300"
+          style={{
+            width: sidebarOpen ? "288px" : "0px",
+            opacity: sidebarOpen ? 1 : 0,
+          }}
+        >
+          <Tabs defaultValue="edit" className="flex flex-col h-full">
+            <TabsList className="w-full rounded-none border-b border-border bg-transparent px-0 h-11 shrink-0">
+              <TabsTrigger
+                value="edit"
+                data-ocid="panel.edit.tab"
+                className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              >
+                편집
+              </TabsTrigger>
+              <TabsTrigger
+                value="overlay"
+                data-ocid="panel.overlay.tab"
+                className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              >
+                오버레이
+              </TabsTrigger>
+              <TabsTrigger
+                value="frame"
+                data-ocid="panel.frame.tab"
+                className="flex-1 rounded-none data-[state=active]:border-b-2 data-[state=active]:border-primary data-[state=active]:text-primary data-[state=active]:bg-transparent data-[state=active]:shadow-none"
+              >
+                프레임
+              </TabsTrigger>
+            </TabsList>
+
+            {/* ── Edit tab */}
+            <TabsContent
+              value="edit"
+              className="flex-1 overflow-hidden m-0 data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full">
+                <div className="p-4 space-y-5">
+                  {sel === null ? (
+                    <div
+                      data-ocid="edit.empty_state"
+                      className="flex flex-col items-center justify-center py-16 text-center gap-3"
+                    >
+                      <div className="w-14 h-14 rounded-full border border-border flex items-center justify-center">
+                        <ImagePlus className="w-6 h-6 text-muted-foreground" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-foreground font-medium">
+                          슬롯을 선택하세요
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          캔버스에서 사진 슬롯을 클릭
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <AnimatePresence mode="wait">
+                      <motion.div
+                        key={selectedSlot}
+                        initial={{ opacity: 0, y: 6 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.18 }}
+                        className="space-y-5"
+                      >
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                            슬롯 {(selectedSlot ?? 0) + 1}
+                          </span>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-7 text-xs gap-1.5 text-muted-foreground hover:text-foreground"
+                            onClick={() => openUpload(selectedSlot!)}
+                            data-ocid="edit.upload_button"
+                          >
+                            <ImagePlus className="w-3.5 h-3.5" />
+                            사진 변경
+                          </Button>
+                        </div>
+
+                        <Separator className="bg-border" />
+
+                        {/* Zoom */}
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                            확대/축소
+                          </Label>
+                          <div className="flex items-center gap-3">
+                            <Slider
+                              data-ocid="edit.zoom.input"
+                              min={1}
+                              max={3}
+                              step={0.05}
+                              value={[sel.zoom]}
+                              onValueChange={([v]) =>
+                                updateSlot(selectedSlot!, { zoom: v })
+                              }
+                              className="flex-1 [&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
+                            />
+                            <span className="text-xs text-muted-foreground w-8 text-right">
+                              {sel.zoom.toFixed(1)}x
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Rotation */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                              회전
+                            </Label>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateSlot(selectedSlot!, {
+                                  rotation: 0,
+                                  panX: 0,
+                                  panY: 0,
+                                })
+                              }
+                              className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                              data-ocid="edit.rotation.button"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              초기화
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <Slider
+                              data-ocid="edit.rotation.input"
+                              min={-180}
+                              max={180}
+                              step={1}
+                              value={[sel.rotation]}
+                              onValueChange={([v]) =>
+                                updateSlot(selectedSlot!, { rotation: v })
+                              }
+                              className="flex-1 [&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
+                            />
+                            <span className="text-xs text-muted-foreground w-10 text-right">
+                              {sel.rotation}°
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Flip */}
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                            반전
+                          </Label>
+                          <div className="flex gap-2">
+                            <Button
+                              variant={sel.flipH ? "default" : "outline"}
+                              size="sm"
+                              className={`flex-1 gap-2 text-xs ${sel.flipH ? "bg-primary text-primary-foreground" : "border-border text-foreground"}`}
+                              onClick={() =>
+                                updateSlot(selectedSlot!, { flipH: !sel.flipH })
+                              }
+                              data-ocid="edit.flip.h.toggle"
+                            >
+                              <FlipHorizontal2 className="w-4 h-4" />
+                              좌우
+                            </Button>
+                            <Button
+                              variant={sel.flipV ? "default" : "outline"}
+                              size="sm"
+                              className={`flex-1 gap-2 text-xs ${sel.flipV ? "bg-primary text-primary-foreground" : "border-border text-foreground"}`}
+                              onClick={() =>
+                                updateSlot(selectedSlot!, { flipV: !sel.flipV })
+                              }
+                              data-ocid="edit.flip.v.toggle"
+                            >
+                              <FlipVertical2 className="w-4 h-4" />
+                              상하
+                            </Button>
+                          </div>
+                        </div>
+
+                        {/* Filters */}
+                        <div className="space-y-2">
+                          <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                            필터
+                          </Label>
+                          <div className="flex flex-wrap gap-1.5">
+                            {FILTERS.map((f) => (
+                              <button
+                                type="button"
+                                key={f.id}
+                                onClick={() =>
+                                  updateSlot(selectedSlot!, { filter: f.id })
+                                }
+                                data-ocid="edit.filter.toggle"
+                                className={`px-3 py-1 rounded-full text-xs font-medium transition-all border ${
+                                  sel.filter === f.id
+                                    ? "bg-primary text-primary-foreground border-transparent"
+                                    : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                                }`}
+                              >
+                                {f.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Adjustments */}
+                        <div className="space-y-3">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                              조정
+                            </Label>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                updateSlot(selectedSlot!, {
+                                  brightness: 100,
+                                  contrast: 100,
+                                  saturation: 100,
+                                  temperature: 0,
+                                  shadow: 0,
+                                  vignette: 0,
+                                })
+                              }
+                              className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1"
+                              data-ocid="edit.adjustment.button"
+                            >
+                              <RotateCcw className="w-3 h-3" />
+                              초기화
+                            </button>
+                          </div>
+                          <div className="space-y-2.5">
+                            {[
+                              {
+                                key: "brightness" as const,
+                                label: "밝기",
+                                min: 0,
+                                max: 200,
+                                def: 100,
+                              },
+                              {
+                                key: "contrast" as const,
+                                label: "대조",
+                                min: 0,
+                                max: 200,
+                                def: 100,
+                              },
+                              {
+                                key: "saturation" as const,
+                                label: "채도",
+                                min: 0,
+                                max: 200,
+                                def: 100,
+                              },
+                              {
+                                key: "temperature" as const,
+                                label: "색온도",
+                                min: -100,
+                                max: 100,
+                                def: 0,
+                              },
+                              {
+                                key: "shadow" as const,
+                                label: "쉐도우",
+                                min: 0,
+                                max: 100,
+                                def: 0,
+                              },
+                              {
+                                key: "vignette" as const,
+                                label: "비네팅",
+                                min: 0,
+                                max: 100,
+                                def: 0,
+                              },
+                            ].map(({ key, label, min, max }) => (
+                              <div
+                                key={key}
+                                className="grid grid-cols-[52px_1fr_32px] items-center gap-2"
+                              >
+                                <Label className="text-xs text-muted-foreground">
+                                  {label}
+                                </Label>
+                                <Slider
+                                  data-ocid={`edit.${key}.input`}
+                                  min={min}
+                                  max={max}
+                                  step={1}
+                                  value={[sel[key]]}
+                                  onValueChange={([v]) =>
+                                    updateSlot(selectedSlot!, { [key]: v })
+                                  }
+                                  className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
+                                />
+                                <span className="text-[10px] text-muted-foreground text-right tabular-nums">
+                                  {sel[key]}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 p-3 rounded-lg bg-muted/40 border border-border text-xs text-muted-foreground">
+                          <Move className="w-3.5 h-3.5 shrink-0" />
+                          <span>확대 후 드래그로 위치 조정</span>
+                        </div>
+                      </motion.div>
+                    </AnimatePresence>
+                  )}
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            {/* ── Overlay tab */}
+            <TabsContent
+              value="overlay"
+              className="flex-1 overflow-hidden m-0 data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full">
+                <div className="p-4 space-y-5">
+                  {/* Date stamp */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Calendar className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-semibold uppercase tracking-widest">
+                        날짜 스탬프
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between p-3 rounded-lg bg-muted/40 border border-border">
+                      <span className="text-sm text-foreground font-mono">
+                        {DATE_STR}
+                      </span>
+                      <Switch
+                        checked={dateEnabled}
+                        onCheckedChange={setDateEnabled}
+                        data-ocid="overlay.date.switch"
+                        className="data-[state=checked]:bg-primary"
+                      />
+                    </div>
+                    {dateEnabled && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        className="overflow-hidden"
+                      >
+                        <div className="space-y-2 pt-1">
+                          <Label className="text-xs text-muted-foreground">
+                            위치
+                          </Label>
+                          <div className="grid grid-cols-2 gap-1.5">
+                            {[
+                              { id: "tl" as DatePos, label: "좌상" },
+                              { id: "tr" as DatePos, label: "우상" },
+                              { id: "bl" as DatePos, label: "좌하" },
+                              { id: "br" as DatePos, label: "우하" },
+                            ].map((p) => (
+                              <button
+                                type="button"
+                                key={p.id}
+                                onClick={() => setDatePos(p.id)}
+                                data-ocid="overlay.date.position.toggle"
+                                className={`py-1.5 rounded text-xs font-medium transition-all border ${
+                                  datePos === p.id
+                                    ? "bg-primary text-primary-foreground border-transparent"
+                                    : "border-border text-muted-foreground hover:border-primary/40"
+                                }`}
+                              >
+                                {p.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+
+                  <Separator className="bg-border" />
+
+                  {/* Text overlay */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Type className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-semibold uppercase tracking-widest">
+                        텍스트
+                      </span>
+                    </div>
+
+                    <Input
+                      value={newText}
+                      onChange={(e) => setNewText(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && addText()}
+                      placeholder="텍스트 입력..."
+                      data-ocid="overlay.text.input"
+                      className="bg-input border-border text-foreground placeholder:text-muted-foreground"
+                    />
+
+                    {/* Font style toggles: B / I / U */}
+                    <div className="flex items-center gap-2">
+                      <Label className="text-xs text-muted-foreground flex-1">
+                        스타일
+                      </Label>
+                      <button
+                        type="button"
+                        data-ocid="overlay.text.bold.toggle"
+                        onClick={() => setNewTextBold((v) => !v)}
+                        className={`w-8 h-8 rounded border text-sm font-bold transition-all ${
+                          newTextBold
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border text-foreground hover:bg-muted"
+                        }`}
+                        title="굵게"
+                      >
+                        <Bold className="w-3.5 h-3.5 mx-auto" />
+                      </button>
+                      <button
+                        type="button"
+                        data-ocid="overlay.text.italic.toggle"
+                        onClick={() => setNewTextItalic((v) => !v)}
+                        className={`w-8 h-8 rounded border text-sm transition-all ${
+                          newTextItalic
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border text-foreground hover:bg-muted"
+                        }`}
+                        title="기울기"
+                      >
+                        <Italic className="w-3.5 h-3.5 mx-auto" />
+                      </button>
+                      <button
+                        type="button"
+                        data-ocid="overlay.text.underline.toggle"
+                        onClick={() => setNewTextUnderline((v) => !v)}
+                        className={`w-8 h-8 rounded border text-sm transition-all ${
+                          newTextUnderline
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border text-foreground hover:bg-muted"
+                        }`}
+                        title="밑줄"
+                      >
+                        <Underline className="w-3.5 h-3.5 mx-auto" />
+                      </button>
+                    </div>
+
+                    {/* Font family selector */}
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">
+                        폰트
+                      </Label>
+                      <select
+                        value={newTextFont}
+                        onChange={(e) => setNewTextFont(e.target.value)}
+                        data-ocid="overlay.text.font.select"
+                        className="w-full h-9 rounded-md border border-border bg-input px-2 text-xs text-foreground"
+                      >
+                        <option value="sans-serif">고딕 (기본)</option>
+                        <option value="serif">명조</option>
+                        <option value="'Nanum Myeongjo', serif">
+                          나눔명조
+                        </option>
+                        <option value="'Nanum Gothic', sans-serif">
+                          나눔고딕
+                        </option>
+                        <option value="cursive">손글씨</option>
+                        <option value="'Playfair Display', serif">
+                          플레이페어
+                        </option>
+                      </select>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <div className="flex-1 space-y-1">
+                        <Label className="text-xs text-muted-foreground">
+                          크기 (px)
+                        </Label>
+                        <Input
+                          type="number"
+                          min={10}
+                          max={64}
+                          value={newTextSize}
+                          onChange={(e) =>
+                            setNewTextSize(Number(e.target.value))
+                          }
+                          data-ocid="overlay.text.size.input"
+                          className="bg-input border-border text-foreground h-9 text-sm"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">
+                          색상
+                        </Label>
+                        <div className="relative">
+                          <input
+                            type="color"
+                            value={newTextColor}
+                            onChange={(e) => setNewTextColor(e.target.value)}
+                            data-ocid="overlay.text.color.input"
+                            className="absolute inset-0 opacity-0 cursor-pointer"
+                          />
+                          <div
+                            className="w-9 h-9 rounded border border-border"
+                            style={{ background: newTextColor }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <Button
+                      onClick={addText}
+                      size="sm"
+                      className="w-full bg-primary text-primary-foreground hover:opacity-90"
+                      data-ocid="overlay.text.submit_button"
+                    >
+                      텍스트 추가
+                    </Button>
+
+                    {textOverlays.length > 0 && (
+                      <div
+                        data-ocid="overlay.text.list"
+                        className="space-y-1.5"
+                      >
+                        {textOverlays.map((t, i) => (
+                          <div
+                            key={t.id}
+                            data-ocid={`overlay.text.item.${i + 1}`}
+                            className="flex items-center justify-between p-2 rounded-md bg-muted/30 border border-border text-xs"
+                          >
+                            <span
+                              className="truncate max-w-[140px]"
+                              style={{
+                                color: t.color,
+                                fontSize: 13,
+                                fontWeight: t.bold ? "bold" : "normal",
+                                fontStyle: t.italic ? "italic" : "normal",
+                                textDecoration: t.underline
+                                  ? "underline"
+                                  : "none",
+                              }}
+                            >
+                              {t.text}
+                            </span>
+                            <div className="flex items-center gap-1 shrink-0">
+                              <span className="text-[10px] text-muted-foreground">
+                                {Math.round(t.fontSize)}px
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setTextOverlays((prev) =>
+                                    prev.filter((x) => x.id !== t.id),
+                                  )
+                                }
+                                data-ocid={`overlay.text.delete_button.${i + 1}`}
+                                className="text-muted-foreground hover:text-destructive ml-1"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <Separator className="bg-border" />
+
+                  {/* Stickers */}
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <Smile className="w-4 h-4 text-primary" />
+                      <span className="text-xs font-semibold uppercase tracking-widest">
+                        스티커
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-5 gap-1">
+                      {STICKER_EMOJIS.map((e) => (
+                        <button
+                          type="button"
+                          key={e}
+                          onClick={() => addSticker(e)}
+                          data-ocid="overlay.sticker.button"
+                          className="text-2xl py-2 rounded-lg hover:bg-accent transition-colors"
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                    {stickers.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5">
+                        {stickers.map((s, i) => (
+                          <div
+                            key={s.id}
+                            data-ocid={`overlay.sticker.item.${i + 1}`}
+                            className="flex items-center gap-1 px-2 py-1 rounded-full bg-muted/40 border border-border text-xs"
+                          >
+                            <span>{s.emoji}</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setStickers((prev) =>
+                                  prev.filter((x) => x.id !== s.id),
+                                )
+                              }
+                              data-ocid={`overlay.sticker.delete_button.${i + 1}`}
+                              className="text-muted-foreground hover:text-destructive leading-none"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {stickers.length > 0 && (
+                      <p className="text-xs text-muted-foreground">
+                        드래그로 이동, 모서리 핸들로 크기/회전 조정
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </ScrollArea>
+            </TabsContent>
+
+            {/* ── Frame tab */}
+            <TabsContent
+              value="frame"
+              className="flex-1 overflow-hidden m-0 data-[state=inactive]:hidden"
+            >
+              <ScrollArea className="h-full">
+                <div className="p-4 space-y-5">
+                  {/* Presets */}
+                  <div className="space-y-3">
+                    <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      스타일 프리셋
+                    </Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(
+                        Object.entries(FRAME_PRESETS) as [
+                          FramePreset,
+                          (typeof FRAME_PRESETS)[FramePreset],
+                        ][]
+                      ).map(([key, p]) => (
+                        <button
+                          type="button"
+                          key={key}
+                          onClick={() => applyPreset(key)}
+                          data-ocid="frame.preset.toggle"
+                          className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all ${
+                            framePreset === key
+                              ? "border-primary bg-primary/10"
+                              : "border-border hover:border-primary/40 hover:bg-muted/40"
+                          }`}
+                        >
+                          <div
+                            className="w-8 h-10 rounded border-2"
+                            style={{
+                              background: p.bgColor,
+                              borderColor: p.borderColor,
+                            }}
+                          />
+                          <span
+                            className={`text-xs font-medium ${framePreset === key ? "text-primary" : "text-muted-foreground"}`}
+                          >
+                            {p.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <Separator className="bg-border" />
+
+                  {/* Border color - pastel swatches */}
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                      테두리 색상
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {PASTEL_BORDER_COLORS.map((c) => (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          title={c.name}
+                          data-ocid="frame.border.color.toggle"
+                          onClick={() =>
+                            setBorderColor(
+                              c.hex === "transparent" ? "transparent" : c.hex,
+                            )
+                          }
+                          className="relative transition-transform hover:scale-110"
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: "50%",
+                            background:
+                              c.hex === "transparent"
+                                ? "linear-gradient(135deg, #fff 45%, #f00 45%, #f00 55%, #fff 55%)"
+                                : c.hex,
+                            border:
+                              borderColor === c.hex
+                                ? "2.5px solid oklch(0.55 0.15 265)"
+                                : "1.5px solid rgba(0,0,0,0.15)",
+                            boxShadow:
+                              borderColor === c.hex
+                                ? "0 0 0 2px white, 0 0 0 3.5px oklch(0.55 0.15 265)"
+                                : undefined,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Border width */}
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                      여백 — {borderWidth}px
+                    </Label>
+                    <Slider
+                      data-ocid="frame.border.width.input"
+                      min={0}
+                      max={40}
+                      step={1}
+                      value={[borderWidth]}
+                      onValueChange={([v]) => setBorderWidth(v)}
+                      className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
+                    />
+                    <div className="flex justify-between text-xs text-muted-foreground">
+                      <span>0</span>
+                      <span>40px</span>
+                    </div>
+                  </div>
+
+                  {/* Bg color - pastel swatches */}
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                      배경 색상
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {PASTEL_BG_COLORS.map((c) => (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          title={c.name}
+                          data-ocid="frame.bg.color.toggle"
+                          onClick={() => setBgColor(c.hex)}
+                          className="relative transition-transform hover:scale-110"
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: "50%",
+                            background: c.hex,
+                            border:
+                              bgColor === c.hex
+                                ? "2.5px solid oklch(0.55 0.15 265)"
+                                : "1.5px solid rgba(0,0,0,0.15)",
+                            boxShadow:
+                              bgColor === c.hex
+                                ? "0 0 0 2px white, 0 0 0 3.5px oklch(0.55 0.15 265)"
+                                : undefined,
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  <Separator className="bg-border" />
+
+                  {/* Patterns */}
+                  <div className="space-y-3">
+                    <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      배경 패턴
+                    </Label>
+                    <div className="grid grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBgPattern(null)}
+                        data-ocid="pattern.item.1"
+                        title="패턴 없음"
+                        className={`relative w-full aspect-square rounded-md border-2 transition-all overflow-hidden ${
+                          bgPattern === null
+                            ? "border-primary shadow-sm scale-105"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                        style={{ background: bgColor }}
+                      >
+                        <span className="text-[9px] text-muted-foreground font-medium leading-tight absolute inset-0 flex items-center justify-center">
+                          없음
+                        </span>
+                      </button>
+                      {CHECK_PATTERNS.map((p, i) => (
+                        <button
+                          type="button"
+                          key={p.id}
+                          onClick={() => setBgPattern(p.css)}
+                          data-ocid={`pattern.item.${i + 2}`}
+                          title={p.name}
+                          className={`relative w-full aspect-square rounded-md border-2 transition-all overflow-hidden ${
+                            bgPattern === p.css
+                              ? "border-primary shadow-sm scale-105"
+                              : "border-border hover:border-primary/50"
+                          }`}
+                          style={{ background: p.css }}
+                        />
+                      ))}
+                    </div>
+                    {bgPattern && (
+                      <p className="text-xs text-muted-foreground">
+                        {CHECK_PATTERNS.find((p) => p.css === bgPattern)
+                          ?.name ?? ""}{" "}
+                        선택됨
+                      </p>
+                    )}
+                  </div>
+
+                  <Separator className="bg-border" />
+
+                  {/* Logo */}
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                        SONA STUDIO 로고
+                      </Label>
+                      <Switch
+                        checked={logoEnabled}
+                        onCheckedChange={setLogoEnabled}
+                        data-ocid="frame.logo.switch"
+                        className="data-[state=checked]:bg-primary"
+                      />
+                    </div>
+                    {logoEnabled && (
+                      <motion.div
+                        initial={{ opacity: 0, height: 0 }}
+                        animate={{ opacity: 1, height: "auto" }}
+                        className="overflow-hidden space-y-3"
+                      >
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">
+                            위치
+                          </Label>
+                          <Select
+                            value={logoPosition}
+                            onValueChange={(v) =>
+                              setLogoPosition(v as LogoPosition)
+                            }
+                          >
+                            <SelectTrigger
+                              data-ocid="frame.logo.position.select"
+                              className="h-9 text-xs border-border"
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {(
+                                Object.entries(LOGO_POSITION_LABELS) as [
+                                  LogoPosition,
+                                  string,
+                                ][]
+                              ).map(([k, label]) => (
+                                <SelectItem
+                                  key={k}
+                                  value={k}
+                                  className="text-xs"
+                                >
+                                  {label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-xs text-muted-foreground">
+                            색상
+                          </Label>
+                          <div className="flex items-center gap-3">
+                            <div className="relative">
+                              <input
+                                type="color"
+                                value={logoColor}
+                                onChange={(e) => setLogoColor(e.target.value)}
+                                data-ocid="frame.logo.color.input"
+                                className="absolute inset-0 opacity-0 cursor-pointer w-10 h-10"
+                              />
+                              <div
+                                className="w-10 h-10 rounded border border-border"
+                                style={{ background: logoColor }}
+                              />
+                            </div>
+                            <span className="text-sm text-muted-foreground font-mono">
+                              {logoColor}
+                            </span>
+                          </div>
+                        </div>
+                      </motion.div>
+                    )}
+                  </div>
+                </div>
+              </ScrollArea>
+            </TabsContent>
+          </Tabs>
+        </aside>
+      </main>
+
+      {/* Footer */}
+      <footer className="no-print border-t border-border bg-card py-3 px-6 text-center text-xs text-muted-foreground">
+        © {new Date().getFullYear()}.{" "}
+        <a
+          href={`https://caffeine.ai?utm_source=caffeine-footer&utm_medium=referral&utm_content=${encodeURIComponent(window.location.hostname)}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="hover:text-foreground transition-colors"
+        >
+          Built with ♥ using caffeine.ai
+        </a>
+      </footer>
+    </div>
+  );
+}
+
+// ─── StudioComposition component ──────────────────────────────────────────────
+
+interface StudioCompositionProps {
+  compositionRef: React.RefObject<HTMLDivElement | null>;
+  layout: LayoutType;
+  slots: SlotState[];
+  selectedSlot: number | null;
+  borderWidth: number;
+  bgColor: string;
+  bgPattern: string | null;
+  dateEnabled: boolean;
+  datePos: DatePos;
+  textOverlays: TextOverlay[];
+  stickers: StickerItem[];
+  logoEnabled: boolean;
+  logoPosition: LogoPosition;
+  logoColor: string;
+  onSlotClick: (idx: number) => void;
+  onUpload: (idx: number) => void;
+  onUpdateSlot: (idx: number, patch: Partial<SlotState>) => void;
+  onUpdateText: (id: string, patch: Partial<TextOverlay>) => void;
+  onUpdateSticker: (id: string, patch: Partial<StickerItem>) => void;
+  onDeleteText: (id: string) => void;
+  onDeleteSticker: (id: string) => void;
+}
+
+function StudioComposition({
+  compositionRef,
+  layout,
+  slots,
+  selectedSlot,
+  borderWidth,
+  bgColor,
+  bgPattern,
+  dateEnabled,
+  datePos,
+  textOverlays,
+  stickers,
+  logoEnabled,
+  logoPosition,
+  logoColor,
+  onSlotClick,
+  onUpload,
+  onUpdateSlot,
+  onUpdateText,
+  onUpdateSticker,
+  onDeleteText,
+  onDeleteSticker,
+}: StudioCompositionProps) {
+  const gap = borderWidth;
+
+  // ── Slot renderer
+  const renderSlot = (idx: number, w: number, h: number) => {
+    const slot = slots[idx];
+    if (!slot) return null;
+    return (
+      <SlotButton
+        key={idx}
+        idx={idx}
+        slot={slot}
+        isSelected={selectedSlot === idx}
+        w={w}
+        h={h}
+        onSelect={onSlotClick}
+        onUpload={onUpload}
+        onPan={(i, panX, panY) => onUpdateSlot(i, { panX, panY })}
+      />
+    );
+  };
+
+  // ── Date position
+  const dateStyle: React.CSSProperties = {
+    position: "absolute",
+    fontFamily: "'Playfair Display', serif",
+    fontStyle: "italic",
+    fontWeight: 600,
+    fontSize: 13,
+    color: "rgba(255,255,255,0.9)",
+    textShadow: "0 1px 6px rgba(0,0,0,0.9)",
+    letterSpacing: "0.04em",
+    pointerEvents: "none",
+    zIndex: 10,
+    ...(datePos === "tl" && { top: 12, left: 14 }),
+    ...(datePos === "tr" && { top: 12, right: 14 }),
+    ...(datePos === "bl" && { bottom: 26, left: 14 }),
+    ...(datePos === "br" && { bottom: 26, right: 14 }),
+  };
+
+  return (
+    <div
+      ref={compositionRef}
+      className="studio-composition relative select-none"
+      style={{
+        background: bgPattern ?? bgColor,
+        display: "inline-block",
+        position: "relative",
+      }}
+    >
+      {/* ── 4-cut layout: 2×2 grid */}
+      {layout === "4cut" && (
+        <div
+          style={{
+            padding: gap,
+            display: "flex",
+            flexDirection: "column",
+            gap,
+            width: SLOT_W_4CUT * 2 + gap * 3,
+          }}
+        >
+          <div style={{ display: "flex", gap }}>
+            {renderSlot(0, SLOT_W_4CUT, SLOT_H_4CUT)}
+            {renderSlot(1, SLOT_W_4CUT, SLOT_H_4CUT)}
+          </div>
+          <div style={{ display: "flex", gap }}>
+            {renderSlot(2, SLOT_W_4CUT, SLOT_H_4CUT)}
+            {renderSlot(3, SLOT_W_4CUT, SLOT_H_4CUT)}
+          </div>
+          {/* bottom strip spacer */}
+          <div style={{ height: 16 }} />
+        </div>
+      )}
+
+      {/* ── 4R layout: 2 portrait slots stacked */}
+      {layout === "4r" && (
+        <div
+          style={{
+            padding: gap,
+            display: "flex",
+            flexDirection: "column",
+            gap,
+            width: SLOT_W_4R + gap * 2,
+          }}
+        >
+          {renderSlot(0, SLOT_W_4R, SLOT_H_4R)}
+          {renderSlot(1, SLOT_W_4R, SLOT_H_4R)}
+        </div>
+      )}
+
+      {/* ── Combo layout */}
+      {layout === "combo" &&
+        (() => {
+          const comboW = SLOT_W_4R * 2 + gap * 3;
+          const smallW = Math.floor((comboW - gap * 5) / 4);
+          const smallH = Math.floor(smallW * 1.4);
+          return (
+            <div
+              style={{
+                padding: gap,
+                display: "flex",
+                flexDirection: "column",
+                gap: gap * 2,
+                width: comboW,
+              }}
+            >
+              {/* Top: two 4R portrait slots */}
+              <div style={{ display: "flex", gap }}>
+                {renderSlot(0, SLOT_W_4R, SLOT_H_4R)}
+                {renderSlot(1, SLOT_W_4R, SLOT_H_4R)}
+              </div>
+              {/* Bottom: 4 small horizontal slots */}
+              <div style={{ display: "flex", gap }}>
+                {renderSlot(2, smallW, smallH)}
+                {renderSlot(3, smallW, smallH)}
+                {renderSlot(4, smallW, smallH)}
+                {renderSlot(5, smallW, smallH)}
+              </div>
+              <div style={{ height: 16 }} />
+            </div>
+          );
+        })()}
+
+      {/* ── Date stamp overlay */}
+      {dateEnabled && <div style={dateStyle}>{DATE_STR}</div>}
+
+      {/* ── Text overlays */}
+      {textOverlays.map((t) => (
+        <TextOverlayItem
+          key={t.id}
+          t={t}
+          onUpdate={onUpdateText}
+          onDelete={onDeleteText}
+        />
+      ))}
+
+      {/* ── Sticker overlays */}
+      {stickers.map((s) => (
+        <StickerOverlayItem
+          key={s.id}
+          s={s}
+          onUpdate={onUpdateSticker}
+          onDelete={onDeleteSticker}
+        />
+      ))}
+
+      {/* ── Single configurable logo */}
+      {logoEnabled && (
+        <div style={getLogoStyle(logoPosition, logoColor)}>SONA STUDIO</div>
+      )}
+    </div>
+  );
+}
+
+// ─── SlotButton component ─────────────────────────────────────────────────────
+
+function SlotButton({
+  idx,
+  slot,
+  isSelected,
+  w,
+  h,
+  onSelect,
+  onUpload,
+  onPan,
+}: {
+  idx: number;
+  slot: SlotState;
+  isSelected: boolean;
+  w: number;
+  h: number;
+  onSelect: (idx: number) => void;
+  onUpload: (idx: number) => void;
+  onPan: (idx: number, panX: number, panY: number) => void;
+}) {
+  const dragRef = useRef<{
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    moved: boolean;
+  } | null>(null);
+
+  const visualZoom = slot.zoom * 1.1;
+
+  return (
+    <button
+      type="button"
+      data-slot-index={idx}
+      data-ocid={`canvas.slot.${idx + 1}`}
+      className="relative overflow-hidden p-0 border-0"
+      style={{
+        width: w,
+        height: h,
+        flexShrink: 0,
+        outline: isSelected ? "2px solid oklch(0.76 0.12 75)" : "none",
+        outlineOffset: isSelected ? "-2px" : "0",
+        cursor: slot.imageUrl ? "grab" : "pointer",
+        background: slot.imageUrl ? "transparent" : "oklch(0.20 0.007 265)",
+        touchAction: "none",
+      }}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.currentTarget.setPointerCapture(e.pointerId);
+        dragRef.current = {
+          startX: e.clientX,
+          startY: e.clientY,
+          originX: slot.panX,
+          originY: slot.panY,
+          moved: false,
+        };
+      }}
+      onPointerMove={(e) => {
+        const d = dragRef.current;
+        if (!d) return;
+        const dx = e.clientX - d.startX;
+        const dy = e.clientY - d.startY;
+        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) d.moved = true;
+        if (!d.moved) return;
+        onPan(idx, d.originX + dx, d.originY + dy);
+      }}
+      onPointerUp={(e) => {
+        const d = dragRef.current;
+        if (d) {
+          if (!d.moved) {
+            if (!slot.imageUrl) onUpload(idx);
+            else onSelect(idx);
+          }
+          dragRef.current = null;
+        }
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      }}
+    >
+      {slot.imageUrl ? (
+        <img
+          src={slot.imageUrl}
+          alt={`슬롯 ${idx + 1}`}
+          draggable={false}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            objectFit: "cover",
+            transformOrigin: "center center",
+            transform: `translate(${slot.panX}px, ${slot.panY}px) rotate(${slot.rotation}deg) scale(${visualZoom}) scaleX(${slot.flipH ? -1 : 1}) scaleY(${slot.flipV ? -1 : 1})`,
+            imageRendering:
+              "high-quality" as React.CSSProperties["imageRendering"],
+            filter: getFilterCSS(slot.filter, slot),
+            userSelect: "none",
+            pointerEvents: "none",
+          }}
+        />
+      ) : (
+        <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+          <ImagePlus
+            className="text-muted-foreground"
+            style={{ width: Math.min(w, h) * 0.15 }}
+          />
+          <span
+            className="text-muted-foreground"
+            style={{ fontSize: Math.min(w, h) * 0.07 }}
+          >
+            사진 추가
+          </span>
+        </div>
+      )}
+      {slot.vignette > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            zIndex: 2,
+            background: `radial-gradient(ellipse at center, transparent ${100 - slot.vignette * 0.7}%, rgba(0,0,0,${slot.vignette * 0.008}) 100%)`,
+          }}
+        />
+      )}
+      {slot.shadow > 0 && (
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            pointerEvents: "none",
+            zIndex: 3,
+            background: `linear-gradient(rgba(0,0,0,${slot.shadow * 0.003}), rgba(0,0,0,${slot.shadow * 0.003}))`,
+            mixBlendMode: "multiply",
+          }}
+        />
+      )}
+    </button>
+  );
+}
+
+// ─── Text overlay item with pointer capture ───────────────────────────────────
+
+function TextOverlayItem({
+  t,
+  onUpdate,
+  onDelete,
+}: {
+  t: TextOverlay;
+  onUpdate: (id: string, patch: Partial<TextOverlay>) => void;
+  onDelete: (id: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(t.text);
+  const elRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{
+    type: "move" | "resize" | "rotate";
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    originSize?: number;
+    originRotation?: number;
+    startAngle?: number;
+    centerX?: number;
+    centerY?: number;
+  } | null>(null);
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (d.type === "move") {
+      const parent = elRef.current?.parentElement;
+      if (!parent) return;
+      const rect = parent.getBoundingClientRect();
+      onUpdate(t.id, {
+        x: Math.max(0, Math.min(90, d.originX + (dx / rect.width) * 100)),
+        y: Math.max(0, Math.min(90, d.originY + (dy / rect.height) * 100)),
+      });
+    } else if (d.type === "resize") {
+      onUpdate(t.id, {
+        fontSize: Math.max(8, Math.min(120, (d.originSize ?? 18) + dx / 2)),
+      });
+    } else if (d.type === "rotate") {
+      const cur =
+        Math.atan2(e.clientY - (d.centerY ?? 0), e.clientX - (d.centerX ?? 0)) *
+        (180 / Math.PI);
+      onUpdate(t.id, {
+        rotation: (d.originRotation ?? 0) + cur - (d.startAngle ?? 0),
+      });
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    dragRef.current = null;
+    try {
+      elRef.current?.releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  return (
+    <div
+      ref={elRef}
+      className="group"
+      style={{
+        position: "absolute",
+        left: `${t.x}%`,
+        top: `${t.y}%`,
+        zIndex: 20,
+        cursor: "move",
+        userSelect: "none",
+        transform: `rotate(${t.rotation}deg)`,
+        transformOrigin: "center center",
+        touchAction: "none",
+      }}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        elRef.current?.setPointerCapture(e.pointerId);
+        dragRef.current = {
+          type: "move",
+          startX: e.clientX,
+          startY: e.clientY,
+          originX: t.x,
+          originY: t.y,
+        };
+      }}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+    >
+      {/* Rotate handle – top center */}
+      <div
+        className="absolute transition-opacity"
+        style={{
+          top: -22,
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: 16,
+          height: 16,
+          borderRadius: "50%",
+          background: "white",
+          border: "2px solid #6366f1",
+          cursor: "crosshair",
+          zIndex: 21,
+          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+        }}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const el = elRef.current;
+          if (!el) return;
+          const rect = el.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          const startAngle =
+            Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI);
+          elRef.current?.setPointerCapture(e.pointerId);
+          dragRef.current = {
+            type: "rotate",
+            startX: e.clientX,
+            startY: e.clientY,
+            originX: 0,
+            originY: 0,
+            originRotation: t.rotation,
+            startAngle,
+            centerX: cx,
+            centerY: cy,
+          };
+        }}
+      />
+      {/* Connector line */}
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          top: -10,
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: 1,
+          height: 10,
+          background: "rgba(99,102,241,0.5)",
+          zIndex: 20,
+        }}
+      />
+
+      {/* Delete button */}
+      <button
+        type="button"
+        className="absolute opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{
+          top: -12,
+          right: -12,
+          width: 20,
+          height: 20,
+          borderRadius: "50%",
+          background: "#ef4444",
+          color: "white",
+          border: "none",
+          cursor: "pointer",
+          zIndex: 22,
+          fontSize: 14,
+          lineHeight: "20px",
+          textAlign: "center",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+        }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(t.id);
+        }}
+        title="삭제"
+      >
+        ×
+      </button>
+
+      {/* Text content */}
+      {editing ? (
+        <input
+          ref={(el) => {
+            if (el) setTimeout(() => el.focus(), 0);
+          }}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onBlur={() => {
+            onUpdate(t.id, { text: editValue });
+            setEditing(false);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              onUpdate(t.id, { text: editValue });
+              setEditing(false);
+            }
+            e.stopPropagation();
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{
+            display: "inline-block",
+            fontSize: t.fontSize,
+            color: t.color,
+            fontWeight: t.bold ? "bold" : "normal",
+            fontStyle: t.italic ? "italic" : "normal",
+            textDecoration: t.underline ? "underline" : "none",
+            fontFamily: t.fontFamily || "sans-serif",
+            whiteSpace: "nowrap",
+            lineHeight: 1.2,
+            padding: "2px 4px",
+            background: "rgba(255,255,255,0.15)",
+            border: "1px dashed rgba(99,102,241,0.8)",
+            borderRadius: 2,
+            outline: "none",
+            minWidth: 40,
+          }}
+        />
+      ) : (
+        // biome-ignore lint/a11y/useSemanticElements: text overlay click-to-edit needs inline display
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
+            e.stopPropagation();
+            setEditValue(t.text);
+            setEditing(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.stopPropagation();
+              setEditValue(t.text);
+              setEditing(true);
+            }
+          }}
+          style={{
+            display: "inline-block",
+            fontSize: t.fontSize,
+            color: t.color,
+            fontWeight: t.bold ? "bold" : "normal",
+            fontStyle: t.italic ? "italic" : "normal",
+            textDecoration: t.underline ? "underline" : "none",
+            fontFamily: t.fontFamily || "sans-serif",
+            whiteSpace: "nowrap",
+            textShadow: "0 1px 4px rgba(0,0,0,0.5)",
+            lineHeight: 1.2,
+            padding: "2px 4px",
+            cursor: "text",
+          }}
+        >
+          {t.text}
+        </span>
+      )}
+
+      {/* Resize handle – bottom right */}
+      <div
+        className="absolute"
+        style={{
+          bottom: -6,
+          right: -6,
+          width: 16,
+          height: 16,
+          background: "white",
+          border: "2px solid #6366f1",
+          borderRadius: 3,
+          cursor: "se-resize",
+          zIndex: 21,
+          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+        }}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          elRef.current?.setPointerCapture(e.pointerId);
+          dragRef.current = {
+            type: "resize",
+            startX: e.clientX,
+            startY: e.clientY,
+            originX: 0,
+            originY: 0,
+            originSize: t.fontSize,
+          };
+        }}
+      />
+
+      {/* Hover outline */}
+      <div
+        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+        style={{
+          outline: "1.5px dashed rgba(99,102,241,0.6)",
+          outlineOffset: 3,
+          borderRadius: 2,
+        }}
+      />
+    </div>
+  );
+}
+
+// ─── Sticker overlay item with pointer capture ────────────────────────────────
+
+function StickerOverlayItem({
+  s,
+  onUpdate,
+  onDelete,
+}: {
+  s: StickerItem;
+  onUpdate: (id: string, patch: Partial<StickerItem>) => void;
+  onDelete: (id: string) => void;
+}) {
+  const elRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{
+    type: "move" | "resize" | "rotate";
+    startX: number;
+    startY: number;
+    originX: number;
+    originY: number;
+    originSize?: number;
+    originRotation?: number;
+    startAngle?: number;
+    centerX?: number;
+    centerY?: number;
+  } | null>(null);
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    const d = dragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.startX;
+    const dy = e.clientY - d.startY;
+    if (d.type === "move") {
+      const parent = elRef.current?.parentElement;
+      if (!parent) return;
+      const rect = parent.getBoundingClientRect();
+      onUpdate(s.id, {
+        x: Math.max(0, Math.min(100, d.originX + (dx / rect.width) * 100)),
+        y: Math.max(0, Math.min(100, d.originY + (dy / rect.height) * 100)),
+      });
+    } else if (d.type === "resize") {
+      onUpdate(s.id, {
+        size: Math.max(16, Math.min(120, (d.originSize ?? 32) + dx)),
+      });
+    } else if (d.type === "rotate") {
+      const cur =
+        Math.atan2(e.clientY - (d.centerY ?? 0), e.clientX - (d.centerX ?? 0)) *
+        (180 / Math.PI);
+      onUpdate(s.id, {
+        rotation: (d.originRotation ?? 0) + cur - (d.startAngle ?? 0),
+      });
+    }
+  };
+
+  const handlePointerUp = (e: React.PointerEvent) => {
+    dragRef.current = null;
+    try {
+      elRef.current?.releasePointerCapture(e.pointerId);
+    } catch {}
+  };
+
+  return (
+    <div
+      ref={elRef}
+      className="group"
+      style={{
+        position: "absolute",
+        left: `${s.x}%`,
+        top: `${s.y}%`,
+        zIndex: 20,
+        cursor: "move",
+        userSelect: "none",
+        transform: `translate(-50%, -50%) rotate(${s.rotation}deg)`,
+        transformOrigin: "center center",
+        touchAction: "none",
+      }}
+      onPointerDown={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        elRef.current?.setPointerCapture(e.pointerId);
+        dragRef.current = {
+          type: "move",
+          startX: e.clientX,
+          startY: e.clientY,
+          originX: s.x,
+          originY: s.y,
+        };
+      }}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+    >
+      {/* Rotate handle – top center */}
+      <div
+        className="absolute transition-opacity"
+        style={{
+          top: -22,
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: 16,
+          height: 16,
+          borderRadius: "50%",
+          background: "white",
+          border: "2px solid #f59e0b",
+          cursor: "crosshair",
+          zIndex: 21,
+          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+        }}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const el = elRef.current;
+          if (!el) return;
+          const rect = el.getBoundingClientRect();
+          const cx = rect.left + rect.width / 2;
+          const cy = rect.top + rect.height / 2;
+          const startAngle =
+            Math.atan2(e.clientY - cy, e.clientX - cx) * (180 / Math.PI);
+          elRef.current?.setPointerCapture(e.pointerId);
+          dragRef.current = {
+            type: "rotate",
+            startX: e.clientX,
+            startY: e.clientY,
+            originX: 0,
+            originY: 0,
+            originRotation: s.rotation,
+            startAngle,
+            centerX: cx,
+            centerY: cy,
+          };
+        }}
+      />
+      {/* Connector */}
+      <div
+        className="absolute pointer-events-none"
+        style={{
+          top: -10,
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: 1,
+          height: 10,
+          background: "rgba(245,158,11,0.5)",
+          zIndex: 20,
+        }}
+      />
+
+      {/* Delete button */}
+      <button
+        type="button"
+        className="absolute opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{
+          top: -12,
+          right: -12,
+          width: 20,
+          height: 20,
+          borderRadius: "50%",
+          background: "#ef4444",
+          color: "white",
+          border: "none",
+          cursor: "pointer",
+          zIndex: 22,
+          fontSize: 14,
+          lineHeight: "20px",
+          textAlign: "center",
+          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+        }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          onDelete(s.id);
+        }}
+        title="삭제"
+      >
+        ×
+      </button>
+
+      {/* Emoji */}
+      <span
+        style={{
+          display: "inline-block",
+          fontSize: s.size,
+          lineHeight: 1,
+          userSelect: "none",
+        }}
+      >
+        {s.emoji}
+      </span>
+
+      {/* Resize handle – bottom right */}
+      <div
+        className="absolute"
+        style={{
+          bottom: -6,
+          right: -6,
+          width: 16,
+          height: 16,
+          background: "white",
+          border: "2px solid #f59e0b",
+          borderRadius: 3,
+          cursor: "se-resize",
+          zIndex: 21,
+          boxShadow: "0 1px 4px rgba(0,0,0,0.3)",
+        }}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          elRef.current?.setPointerCapture(e.pointerId);
+          dragRef.current = {
+            type: "resize",
+            startX: e.clientX,
+            startY: e.clientY,
+            originX: 0,
+            originY: 0,
+            originSize: s.size,
+          };
+        }}
+      />
+
+      {/* Hover outline */}
+      <div
+        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+        style={{
+          outline: "1.5px dashed rgba(245,158,11,0.6)",
+          outlineOffset: 3,
+          borderRadius: 2,
+        }}
+      />
+    </div>
+  );
+}
