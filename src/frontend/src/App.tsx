@@ -1,4 +1,10 @@
 import { Button } from "@/components/ui/button";
+import {
+  Drawer,
+  DrawerContent,
+  DrawerHeader,
+  DrawerTitle,
+} from "@/components/ui/drawer";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -14,6 +20,7 @@ import { Slider } from "@/components/ui/slider";
 import { Toaster } from "@/components/ui/sonner";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useIsMobile } from "@/hooks/use-mobile";
 import {
   Bold,
   Calendar,
@@ -23,17 +30,21 @@ import {
   FlipHorizontal2,
   FlipVertical2,
   FolderOpen,
+  Frame,
   ImagePlus,
   Italic,
   Layers,
+  LayoutGrid,
   Move,
   Printer,
   RotateCcw,
   Save,
+  SlidersHorizontal,
   Smile,
   Trash2,
   Type,
   Underline,
+  X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef, useState } from "react";
@@ -294,17 +305,32 @@ const CHECK_PATTERNS: CheckPattern[] = [
     name: "깅엄 체크",
     css: "repeating-linear-gradient(0deg, rgba(74,222,128,0.5) 0, rgba(74,222,128,0.5) 12px, transparent 12px, transparent 24px), repeating-linear-gradient(90deg, rgba(74,222,128,0.5) 0, rgba(74,222,128,0.5) 12px, transparent 12px, transparent 24px) 0 0/24px 24px #f0fdf4",
   },
+  {
+    id: "tartan-red",
+    name: "레드 타탄",
+    css: "repeating-linear-gradient(0deg, rgba(255,255,255,0.65) 0 8px, transparent 8px 20px, rgba(240,180,190,0.6) 20px 26px, transparent 26px 34px, rgba(255,255,255,0.35) 34px 38px, transparent 38px 46px, rgba(180,50,70,0.45) 46px 54px, transparent 54px 70px, rgba(255,255,255,0.65) 70px 78px, transparent 78px 96px), repeating-linear-gradient(90deg, rgba(255,255,255,0.65) 0 8px, transparent 8px 20px, rgba(240,180,190,0.6) 20px 26px, transparent 26px 34px, rgba(255,255,255,0.35) 34px 38px, transparent 38px 46px, rgba(180,50,70,0.45) 46px 54px, transparent 54px 70px, rgba(255,255,255,0.65) 70px 78px, transparent 78px 96px) 0 0/96px 96px #D4697A",
+  },
+  {
+    id: "tartan-green",
+    name: "그린 타탄",
+    css: "repeating-linear-gradient(0deg, rgba(255,255,255,0.6) 0 8px, transparent 8px 20px, rgba(200,235,210,0.55) 20px 26px, transparent 26px 34px, rgba(255,255,255,0.3) 34px 38px, transparent 38px 46px, rgba(50,100,60,0.4) 46px 54px, transparent 54px 70px, rgba(255,255,255,0.6) 70px 78px, transparent 78px 96px), repeating-linear-gradient(90deg, rgba(255,255,255,0.6) 0 8px, transparent 8px 20px, rgba(200,235,210,0.55) 20px 26px, transparent 26px 34px, rgba(255,255,255,0.3) 34px 38px, transparent 38px 46px, rgba(50,100,60,0.4) 46px 54px, transparent 54px 70px, rgba(255,255,255,0.6) 70px 78px, transparent 78px 96px) 0 0/96px 96px #7AAE88",
+  },
+  {
+    id: "tartan-navy",
+    name: "네이비 타탄",
+    css: "repeating-linear-gradient(0deg, rgba(255,255,255,0.6) 0 8px, transparent 8px 20px, rgba(200,220,255,0.5) 20px 26px, transparent 26px 32px, rgba(255,200,200,0.45) 32px 35px, transparent 35px 42px, rgba(50,70,140,0.4) 42px 50px, transparent 50px 66px, rgba(255,255,255,0.6) 66px 74px, transparent 74px 96px), repeating-linear-gradient(90deg, rgba(255,255,255,0.6) 0 8px, transparent 8px 20px, rgba(200,220,255,0.5) 20px 26px, transparent 26px 32px, rgba(255,200,200,0.45) 32px 35px, transparent 35px 42px, rgba(50,70,140,0.4) 42px 50px, transparent 50px 66px, rgba(255,255,255,0.6) 66px 74px, transparent 74px 96px) 0 0/96px 96px #7A8EC4",
+  },
 ];
 
 const TODAY = new Date();
 const DATE_STR = `${TODAY.getFullYear()}.${String(TODAY.getMonth() + 1).padStart(2, "0")}.${String(TODAY.getDate()).padStart(2, "0")}`;
 
-const LOGO_POSITION_LABELS: Record<LogoPosition, string> = {
-  "top-left": "좌상단",
-  "top-right": "우상단",
-  "bottom-left": "좌하단",
-  "bottom-right": "우하단",
-  center: "가운데",
+const LOGO_POSITION_KEYS: Record<LogoPosition, string> = {
+  "top-left": "posTopLeft",
+  "top-right": "posTopRight",
+  "bottom-left": "posBotLeft",
+  "bottom-right": "posBotRight",
+  center: "posCenter",
 };
 
 const getLogoStyle = (
@@ -341,6 +367,213 @@ const getLogoStyle = (
   }
 };
 
+// ─── Translations ─────────────────────────────────────────────────────────────
+
+type Language = "en" | "ko";
+
+const translations: Record<Language, Record<string, string>> = {
+  en: {
+    // Header
+    print: "Print",
+    saveImage: "Save",
+    loadProject: "Load",
+    saveProject: "Save Project",
+    // Layout names
+    layout4cut: "4-Cut",
+    layout4r: "4R",
+    layoutCombo: "4-Cut + 4R Combo",
+    layoutShort4cut: "4-Cut",
+    layoutShort4r: "4R",
+    layoutShortCombo: "Combo",
+    // Panel tabs
+    tabEdit: "Edit",
+    tabOverlay: "Overlay",
+    tabFrame: "Frame",
+    // Sidebar labels
+    sidebarHide: "Hide panel",
+    sidebarShow: "Show panel",
+    // Edit tab
+    selectSlot: "Select a slot",
+    clickSlot: "Click a photo slot on canvas",
+    tapSlot: "Tap a photo slot on canvas",
+    slot: "Slot",
+    addPhoto: "Add Photo",
+    zoom: "Zoom",
+    rotate: "Rotate",
+    reset: "Reset",
+    flip: "Flip",
+    flipH: "Horizontal",
+    flipV: "Vertical",
+    filter: "Filter",
+    adjust: "Adjustments",
+    brightness: "Bright.",
+    contrast: "Contrast",
+    saturation: "Saturati.",
+    temperature: "Temp.",
+    shadow: "Shadow",
+    vignette: "Vignette",
+    // Filter labels
+    filterOriginal: "Original",
+    filterBW: "B&W",
+    filterSepia: "Sepia",
+    filterVintage: "Vintage",
+    filterFade: "Fade",
+    // Overlay tab
+    dateStamp: "Date Stamp",
+    position: "Position",
+    positionTL: "Top-L",
+    positionTR: "Top-R",
+    positionBL: "Bot-L",
+    positionBR: "Bot-R",
+    text: "Text",
+    textPlaceholder: "Enter text...",
+    style: "Style",
+    font: "Font",
+    size: "Size (px)",
+    color: "Color",
+    addText: "Add Text",
+    sticker: "Stickers",
+    dragHint: "Drag to move, corner handle to resize/rotate",
+    // Frame tab
+    stylePreset: "Style Preset",
+    borderColor: "Border Color",
+    margin: "Margin",
+    bgColor: "Background Color",
+    bgPattern: "Background Pattern",
+    noPattern: "None",
+    logoLabel: "SONA STUDIO Logo",
+    logoPosition: "Position",
+    logoColor: "Color",
+    // Logo positions
+    posTopLeft: "Top Left",
+    posTopRight: "Top Right",
+    posBotLeft: "Bot Left",
+    posBotRight: "Bot Right",
+    posCenter: "Center",
+    // Presets
+    presetClean: "Clean",
+    presetFilm: "Film",
+    presetVintage: "Vintage",
+    // Mobile tabs
+    mobileLayout: "Layout",
+    mobileEdit: "Photo Edit",
+    mobileText: "Text",
+    mobileSticker: "Sticker",
+    mobileFrame: "Frame",
+    // Mobile drawer titles
+    drawerLayout: "Select Layout",
+    // Toast messages
+    toastProjectSaved: "Project saved",
+    toastProjectLoaded: "Project loaded",
+    toastProjectError: "Cannot read project file",
+    toastSaving: "Generating image...",
+    toastSaved: "Saved! (High quality 300DPI)",
+    toastSaveError: "Save failed.",
+    // Language toggle
+    langToggle: "KO",
+  },
+  ko: {
+    // Header
+    print: "인쇄",
+    saveImage: "저장",
+    loadProject: "불러오기",
+    saveProject: "프로젝트 저장",
+    // Layout names
+    layout4cut: "4컷",
+    layout4r: "4R",
+    layoutCombo: "4컷+4R 콤보",
+    layoutShort4cut: "4컷",
+    layoutShort4r: "4R",
+    layoutShortCombo: "콤보",
+    // Panel tabs
+    tabEdit: "편집",
+    tabOverlay: "오버레이",
+    tabFrame: "프레임",
+    // Sidebar labels
+    sidebarHide: "패널 숨기기",
+    sidebarShow: "패널 보기",
+    // Edit tab
+    selectSlot: "슬롯을 선택하세요",
+    clickSlot: "캔버스에서 사진 슬롯을 클릭",
+    tapSlot: "캔버스에서 사진 슬롯을 탭",
+    slot: "슬롯",
+    addPhoto: "사진 추가",
+    zoom: "줌",
+    rotate: "회전",
+    reset: "초기화",
+    flip: "반전",
+    flipH: "좌우",
+    flipV: "상하",
+    filter: "필터",
+    adjust: "조정",
+    brightness: "밝기",
+    contrast: "대조",
+    saturation: "채도",
+    temperature: "색온도",
+    shadow: "쉐도우",
+    vignette: "비네팅",
+    // Filter labels
+    filterOriginal: "원본",
+    filterBW: "흑백",
+    filterSepia: "세피아",
+    filterVintage: "빈티지",
+    filterFade: "페이드",
+    // Overlay tab
+    dateStamp: "날짜 스탬프",
+    position: "위치",
+    positionTL: "좌상",
+    positionTR: "우상",
+    positionBL: "좌하",
+    positionBR: "우하",
+    text: "텍스트",
+    textPlaceholder: "텍스트 입력...",
+    style: "스타일",
+    font: "폰트",
+    size: "크기 (px)",
+    color: "색상",
+    addText: "텍스트 추가",
+    sticker: "스티커",
+    dragHint: "드래그로 이동, 모서리 핸들로 크기/회전 조정",
+    // Frame tab
+    stylePreset: "스타일 프리셋",
+    borderColor: "테두리 색상",
+    margin: "여백",
+    bgColor: "배경 색상",
+    bgPattern: "배경 패턴",
+    noPattern: "없음",
+    logoLabel: "SONA STUDIO 로고",
+    logoPosition: "위치",
+    logoColor: "색상",
+    // Logo positions
+    posTopLeft: "좌상단",
+    posTopRight: "우상단",
+    posBotLeft: "좌하단",
+    posBotRight: "우하단",
+    posCenter: "가운데",
+    // Presets
+    presetClean: "클린",
+    presetFilm: "필름",
+    presetVintage: "빈티지",
+    // Mobile tabs
+    mobileLayout: "레이아웃",
+    mobileEdit: "사진편집",
+    mobileText: "텍스트",
+    mobileSticker: "스티커",
+    mobileFrame: "프레임",
+    // Mobile drawer titles
+    drawerLayout: "레이아웃 선택",
+    // Toast messages
+    toastProjectSaved: "프로젝트가 저장되었습니다",
+    toastProjectLoaded: "프로젝트를 불러왔습니다",
+    toastProjectError: "프로젝트 파일을 읽을 수 없습니다",
+    toastSaving: "이미지 생성 중...",
+    toastSaved: "고화질 저장 완료! (300DPI급)",
+    toastSaveError: "저장에 실패했습니다.",
+    // Language toggle
+    langToggle: "EN",
+  },
+};
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -350,6 +583,11 @@ export default function App() {
   );
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const isMobile = useIsMobile();
+  const [mobileTab, setMobileTab] = useState<string>("");
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+  const [language, setLanguage] = useState<Language>("en");
+  const t = (key: string): string => translations[language][key] ?? key;
 
   // Frame
   const [borderColor, setBorderColor] = useState("#ffffff");
@@ -526,7 +764,7 @@ export default function App() {
     a.download = "sona-studio-project.json";
     a.click();
     URL.revokeObjectURL(url);
-    toast.success("프로젝트가 저장되었습니다");
+    toast.success(t("toastProjectSaved"));
   };
 
   const handleProjectLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -557,9 +795,9 @@ export default function App() {
         if (data.logoEnabled !== undefined) setLogoEnabled(data.logoEnabled);
         if (data.logoPosition) setLogoPosition(data.logoPosition);
         if (data.logoColor) setLogoColor(data.logoColor);
-        toast.success("프로젝트를 불러왔습니다");
+        toast.success(t("toastProjectLoaded"));
       } catch {
-        toast.error("프로젝트 파일을 읽을 수 없습니다");
+        toast.error(t("toastProjectError"));
       }
     };
     reader.readAsText(file);
@@ -570,7 +808,7 @@ export default function App() {
   const handleExport = async () => {
     const comp = compositionRef.current;
     if (!comp) return;
-    const toastId = toast.loading("이미지 생성 중...");
+    const toastId = toast.loading(t("toastSaving"));
     try {
       const compRect = comp.getBoundingClientRect();
       const scale = Math.max(3, 2480 / compRect.width);
@@ -584,6 +822,163 @@ export default function App() {
 
       ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, compRect.width, compRect.height);
+
+      // Draw pattern if active
+      if (bgPattern) {
+        const W = compRect.width;
+        const H = compRect.height;
+        const activePattern = CHECK_PATTERNS.find((p) => p.css === bgPattern);
+        if (activePattern) {
+          if (activePattern.id === "bw-small") {
+            const sz = 16;
+            for (let y = 0; y < H; y += sz) {
+              for (let x = 0; x < W; x += sz) {
+                ctx.fillStyle =
+                  Math.floor(x / sz + y / sz) % 2 === 0 ? "#222" : "#fff";
+                ctx.fillRect(x, y, sz, sz);
+              }
+            }
+          } else if (activePattern.id === "pink-white") {
+            const sz = 16;
+            for (let y = 0; y < H; y += sz) {
+              for (let x = 0; x < W; x += sz) {
+                ctx.fillStyle =
+                  Math.floor(x / sz + y / sz) % 2 === 0 ? "#f9c4d2" : "#fff0f4";
+                ctx.fillRect(x, y, sz, sz);
+              }
+            }
+          } else if (activePattern.id === "blue-white") {
+            const sz = 16;
+            for (let y = 0; y < H; y += sz) {
+              for (let x = 0; x < W; x += sz) {
+                ctx.fillStyle =
+                  Math.floor(x / sz + y / sz) % 2 === 0 ? "#bfdbfe" : "#eff6ff";
+                ctx.fillRect(x, y, sz, sz);
+              }
+            }
+          } else if (activePattern.id === "bw-large") {
+            const sz = 40;
+            for (let y = 0; y < H; y += sz) {
+              for (let x = 0; x < W; x += sz) {
+                ctx.fillStyle =
+                  Math.floor(x / sz + y / sz) % 2 === 0 ? "#1a1a1a" : "#ffffff";
+                ctx.fillRect(x, y, sz, sz);
+              }
+            }
+          } else if (activePattern.id === "polka-dot") {
+            ctx.fillStyle = "#fdf2f8";
+            ctx.fillRect(0, 0, W, H);
+            const dotSize = 28;
+            const dotR = dotSize * 0.3;
+            ctx.fillStyle = "#f472b6";
+            for (let row = 0; row * dotSize < H + dotSize; row++) {
+              for (let col = 0; col * dotSize < W + dotSize; col++) {
+                const offX = row % 2 === 1 ? dotSize / 2 : 0;
+                const cx2 = col * dotSize + offX;
+                const cy2 = row * dotSize;
+                ctx.beginPath();
+                ctx.arc(cx2, cy2, dotR, 0, Math.PI * 2);
+                ctx.fill();
+              }
+            }
+          } else if (activePattern.id === "gingham") {
+            ctx.fillStyle = "#f0fdf4";
+            ctx.fillRect(0, 0, W, H);
+            const sz2 = 12;
+            ctx.fillStyle = "rgba(74,222,128,0.5)";
+            for (let y = 0; y < H; y += sz2 * 2) {
+              ctx.fillRect(0, y, W, sz2);
+            }
+            for (let x = 0; x < W; x += sz2 * 2) {
+              ctx.fillRect(x, 0, sz2, H);
+            }
+          } else if (
+            activePattern.id === "tartan-red" ||
+            activePattern.id === "tartan-green" ||
+            activePattern.id === "tartan-navy"
+          ) {
+            type TartanStripe = { color: string; w: number };
+            const tartanSetts: Record<
+              string,
+              { bg: string; stripes: TartanStripe[] }
+            > = {
+              "tartan-red": {
+                bg: "#D4697A",
+                stripes: [
+                  { color: "rgba(255,255,255,0.65)", w: 8 },
+                  { color: "transparent", w: 12 },
+                  { color: "rgba(240,180,190,0.6)", w: 6 },
+                  { color: "transparent", w: 8 },
+                  { color: "rgba(255,255,255,0.35)", w: 4 },
+                  { color: "transparent", w: 8 },
+                  { color: "rgba(180,50,70,0.45)", w: 8 },
+                  { color: "transparent", w: 16 },
+                  { color: "rgba(255,255,255,0.65)", w: 8 },
+                  { color: "transparent", w: 18 },
+                ],
+              },
+              "tartan-green": {
+                bg: "#7AAE88",
+                stripes: [
+                  { color: "rgba(255,255,255,0.6)", w: 8 },
+                  { color: "transparent", w: 12 },
+                  { color: "rgba(200,235,210,0.55)", w: 6 },
+                  { color: "transparent", w: 8 },
+                  { color: "rgba(255,255,255,0.3)", w: 4 },
+                  { color: "transparent", w: 8 },
+                  { color: "rgba(50,100,60,0.4)", w: 8 },
+                  { color: "transparent", w: 16 },
+                  { color: "rgba(255,255,255,0.6)", w: 8 },
+                  { color: "transparent", w: 18 },
+                ],
+              },
+              "tartan-navy": {
+                bg: "#7A8EC4",
+                stripes: [
+                  { color: "rgba(255,255,255,0.6)", w: 8 },
+                  { color: "transparent", w: 12 },
+                  { color: "rgba(200,220,255,0.5)", w: 6 },
+                  { color: "transparent", w: 6 },
+                  { color: "rgba(255,200,200,0.45)", w: 3 },
+                  { color: "transparent", w: 7 },
+                  { color: "rgba(50,70,140,0.4)", w: 8 },
+                  { color: "transparent", w: 16 },
+                  { color: "rgba(255,255,255,0.6)", w: 8 },
+                  { color: "transparent", w: 22 },
+                ],
+              },
+            };
+            const ts = tartanSetts[activePattern.id];
+            ctx.fillStyle = ts.bg;
+            ctx.fillRect(0, 0, W, H);
+            const unit = ts.stripes.reduce((a, s) => a + s.w, 0);
+            // Horizontal stripes
+            for (let y = 0; y < H + unit; y += unit) {
+              let off = 0;
+              for (const stripe of ts.stripes) {
+                if (stripe.color !== "transparent") {
+                  ctx.fillStyle = stripe.color;
+                  ctx.fillRect(0, y + off, W, stripe.w);
+                }
+                off += stripe.w;
+              }
+            }
+            // Vertical stripes (woven overlay)
+            ctx.globalAlpha = 0.65;
+            for (let x = 0; x < W + unit; x += unit) {
+              let off = 0;
+              for (const stripe of ts.stripes) {
+                if (stripe.color !== "transparent") {
+                  ctx.fillStyle = stripe.color;
+                  ctx.fillRect(x + off, 0, stripe.w, H);
+                }
+                off += stripe.w;
+              }
+            }
+            ctx.globalAlpha = 1.0;
+          }
+        }
+      }
 
       const slotEls = comp.querySelectorAll<HTMLElement>("[data-slot-index]");
       const drawPromises: Promise<void>[] = [];
@@ -702,36 +1097,133 @@ export default function App() {
       // Logo
       if (logoEnabled) {
         ctx.save();
-        ctx.font = "700 9px sans-serif";
-        ctx.fillStyle = logoColor;
         const logoText = "SONA STUDIO";
-        const lw = ctx.measureText(logoText).width;
-        const pad2 = 8;
-        let lx = 0;
-        let ly = 0;
-        switch (logoPosition) {
-          case "top-left":
-            lx = pad2;
-            ly = 12 + pad2;
-            break;
-          case "top-right":
-            lx = compRect.width - lw - pad2;
-            ly = 12 + pad2;
-            break;
-          case "bottom-left":
-            lx = pad2;
-            ly = compRect.height - pad2;
-            break;
-          case "center":
-            lx = (compRect.width - lw) / 2;
-            ly = compRect.height / 2;
-            break;
-          default:
-            lx = compRect.width - lw - pad2;
-            ly = compRect.height - pad2;
-            break;
+        if (layout === "4r" || layout === "combo") {
+          ctx.font = "700 11px 'Plus Jakarta Sans', sans-serif";
+          ctx.fillStyle = logoColor;
+          const lw = ctx.measureText(logoText).width;
+          if (layout === "4r") {
+            const logoFontSize = 11;
+            // Top logo area center
+            ctx.fillText(
+              logoText,
+              (compRect.width - lw) / 2,
+              LOGO_AREA_4R / 2 + logoFontSize / 2,
+            );
+            // Bottom logo area center
+            const bottomLogoY =
+              LOGO_AREA_4R +
+              borderWidth +
+              SLOT_H_4R +
+              borderWidth +
+              SLOT_H_4R +
+              borderWidth +
+              LOGO_AREA_4R / 2 +
+              logoFontSize / 2;
+            ctx.fillText(logoText, (compRect.width - lw) / 2, bottomLogoY);
+          } else {
+            // combo: bottom logo area
+            const comboW = SLOT_W_4R * 2 + borderWidth * 3;
+            const smallW = Math.floor((comboW - borderWidth * 5) / 4);
+            const smallH = Math.floor(smallW * 1.4);
+            const logoFontSize = 11;
+            const bottomLogoY =
+              borderWidth +
+              SLOT_H_4R +
+              borderWidth * 2 +
+              smallH +
+              borderWidth +
+              LOGO_AREA_4R / 2 +
+              logoFontSize / 2;
+            ctx.fillText(logoText, (compRect.width - lw) / 2, bottomLogoY);
+          }
+        } else {
+          // 4cut: use logoPosition
+          ctx.font = "700 9px sans-serif";
+          ctx.fillStyle = logoColor;
+          const lw = ctx.measureText(logoText).width;
+          const pad2 = 8;
+          let lx = 0;
+          let ly = 0;
+          switch (logoPosition) {
+            case "top-left":
+              lx = pad2;
+              ly = 12 + pad2;
+              break;
+            case "top-right":
+              lx = compRect.width - lw - pad2;
+              ly = 12 + pad2;
+              break;
+            case "bottom-left":
+              lx = pad2;
+              ly = compRect.height - pad2;
+              break;
+            case "center":
+              lx = (compRect.width - lw) / 2;
+              ly = compRect.height / 2;
+              break;
+            default:
+              lx = compRect.width - lw - pad2;
+              ly = compRect.height - pad2;
+              break;
+          }
+          ctx.fillText(logoText, lx, ly);
         }
-        ctx.fillText(logoText, lx, ly);
+        ctx.restore();
+      }
+
+      // Cutting guides
+      if (layout === "4r") {
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = "rgba(60,60,60,0.45)";
+        ctx.lineWidth = 1.5 / scale;
+        const guideW = SLOT_W_4R + borderWidth * 2;
+        const guides = [
+          LOGO_AREA_4R + borderWidth / 2,
+          LOGO_AREA_4R + borderWidth + SLOT_H_4R + borderWidth / 2,
+          LOGO_AREA_4R +
+            borderWidth +
+            SLOT_H_4R +
+            borderWidth +
+            SLOT_H_4R +
+            borderWidth / 2,
+        ];
+        for (const gy of guides) {
+          ctx.beginPath();
+          ctx.moveTo(0, gy);
+          ctx.lineTo(guideW, gy);
+          ctx.stroke();
+        }
+        ctx.restore();
+      } else if (layout === "combo") {
+        ctx.save();
+        ctx.setLineDash([4, 4]);
+        ctx.strokeStyle = "rgba(60,60,60,0.45)";
+        ctx.lineWidth = 1.5 / scale;
+        const comboW = SLOT_W_4R * 2 + borderWidth * 3;
+        const smallW = Math.floor((comboW - borderWidth * 5) / 4);
+        const smallH = Math.floor(smallW * 1.4);
+        // Vertical guide between two 4R photos
+        const vertX = borderWidth + SLOT_W_4R + borderWidth / 2;
+        const vertH = borderWidth + SLOT_H_4R + borderWidth;
+        ctx.beginPath();
+        ctx.moveTo(vertX, 0);
+        ctx.lineTo(vertX, vertH);
+        ctx.stroke();
+        // Horizontal guide 1: between 4R row and 4-cut strip
+        const hGuide1Y = borderWidth + SLOT_H_4R + borderWidth;
+        ctx.beginPath();
+        ctx.moveTo(0, hGuide1Y);
+        ctx.lineTo(comboW, hGuide1Y);
+        ctx.stroke();
+        // Horizontal guide 2: above bottom logo
+        const hGuide2Y =
+          borderWidth + SLOT_H_4R + borderWidth * 2 + smallH + borderWidth;
+        ctx.beginPath();
+        ctx.moveTo(0, hGuide2Y);
+        ctx.lineTo(comboW, hGuide2Y);
+        ctx.stroke();
         ctx.restore();
       }
 
@@ -745,14 +1237,14 @@ export default function App() {
           a.click();
           URL.revokeObjectURL(url);
           toast.dismiss(toastId);
-          toast.success("고화질 저장 완료! (300DPI급)");
+          toast.success(t("toastSaved"));
         },
         "image/jpeg",
         0.97,
       );
     } catch {
       toast.dismiss(toastId);
-      toast.error("저장에 실패했습니다.");
+      toast.error(t("toastSaveError"));
     }
   };
 
@@ -771,15 +1263,15 @@ export default function App() {
 
       {/* Header */}
       <header className="no-print sticky top-0 z-50 border-b border-border bg-card/95 backdrop-blur-sm">
-        <div className="flex items-center justify-between px-6 py-3 gap-4">
+        <div className="flex items-center justify-between px-3 md:px-6 py-2 md:py-3 gap-2 md:gap-4">
           <div className="flex items-center gap-3 flex-shrink-0">
             <Layers className="w-5 h-5 text-primary" strokeWidth={1.5} />
-            <span className="font-display text-xl tracking-[0.2em] text-foreground">
+            <span className="font-display text-base md:text-xl tracking-[0.15em] md:tracking-[0.2em] text-foreground">
               SONA STUDIO
             </span>
           </div>
 
-          <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+          <div className="hidden md:flex items-center gap-1 bg-muted rounded-lg p-1">
             {(["4cut", "4r", "combo"] as LayoutType[]).map((l, i) => (
               <button
                 type="button"
@@ -792,12 +1284,24 @@ export default function App() {
                     : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                {l === "4cut" ? "4컷" : l === "4r" ? "4R" : "4컷+4R 콤보"}
+                {l === "4cut"
+                  ? t("layout4cut")
+                  : l === "4r"
+                    ? t("layout4r")
+                    : t("layoutCombo")}
               </button>
             ))}
           </div>
 
-          <div className="flex items-center gap-2 flex-shrink-0">
+          <div className="flex items-center gap-1 md:gap-2 flex-shrink-0">
+            <button
+              type="button"
+              data-ocid="header.language_toggle"
+              onClick={() => setLanguage((l) => (l === "en" ? "ko" : "en"))}
+              className="px-2.5 py-1 rounded-full border border-border text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-all tracking-wider"
+            >
+              {t("langToggle")}
+            </button>
             <Button
               variant="outline"
               size="sm"
@@ -806,7 +1310,7 @@ export default function App() {
               className="gap-2 border-border text-foreground hover:bg-accent"
             >
               <Printer className="w-4 h-4" />
-              인쇄
+              <span className="hidden md:inline">{t("print")}</span>
             </Button>
             <Button
               size="sm"
@@ -815,7 +1319,7 @@ export default function App() {
               className="gap-2 bg-primary text-primary-foreground hover:opacity-90"
             >
               <Download className="w-4 h-4" />
-              저장
+              <span className="hidden md:inline">{t("saveImage")}</span>
             </Button>
             <input
               ref={projectLoadRef}
@@ -832,7 +1336,7 @@ export default function App() {
               className="gap-2 border-border text-foreground hover:bg-accent"
             >
               <FolderOpen className="w-4 h-4" />
-              불러오기
+              <span className="hidden md:inline">{t("loadProject")}</span>
             </Button>
             <Button
               variant="outline"
@@ -842,7 +1346,7 @@ export default function App() {
               className="gap-2 border-border text-foreground hover:bg-accent"
             >
               <Save className="w-4 h-4" />
-              프로젝트 저장
+              <span className="hidden md:inline">{t("saveProject")}</span>
             </Button>
           </div>
         </div>
@@ -851,7 +1355,7 @@ export default function App() {
       {/* Main */}
       <main className="flex flex-1 overflow-hidden relative">
         {/* Canvas area */}
-        <div className="flex-1 flex items-start justify-center overflow-auto p-8 transition-all duration-300">
+        <div className="flex-1 flex items-start justify-center overflow-auto p-2 md:p-8 pb-20 md:pb-8 transition-all duration-300">
           <AnimatePresence mode="wait">
             <motion.div
               key={layout}
@@ -921,6 +1425,7 @@ export default function App() {
                   onDeleteSticker={(id) =>
                     setStickers((prev) => prev.filter((s) => s.id !== id))
                   }
+                  addPhotoLabel={t("addPhoto")}
                 />
               </div>
             </motion.div>
@@ -932,9 +1437,9 @@ export default function App() {
           type="button"
           data-ocid="sidebar.toggle"
           onClick={() => setSidebarOpen((v) => !v)}
-          className="no-print absolute right-0 top-1/2 -translate-y-1/2 z-20 flex items-center justify-center w-6 h-12 bg-card border border-border rounded-l-lg shadow-md hover:bg-accent transition-all duration-300"
+          className="no-print absolute right-0 top-1/2 -translate-y-1/2 z-20 hidden md:flex items-center justify-center w-6 h-12 bg-card border border-border rounded-l-lg shadow-md hover:bg-accent transition-all duration-300"
           style={{ right: sidebarOpen ? "288px" : "0px" }}
-          title={sidebarOpen ? "패널 숨기기" : "패널 보기"}
+          title={sidebarOpen ? t("sidebarHide") : t("sidebarShow")}
         >
           {sidebarOpen ? (
             <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
@@ -945,7 +1450,7 @@ export default function App() {
 
         {/* Right panel */}
         <aside
-          className="no-print border-l border-border bg-card flex flex-col shrink-0 overflow-hidden transition-all duration-300"
+          className="no-print border-l border-border bg-card hidden md:flex flex-col shrink-0 overflow-hidden transition-all duration-300"
           style={{
             width: sidebarOpen ? "288px" : "0px",
             opacity: sidebarOpen ? 1 : 0,
@@ -993,10 +1498,10 @@ export default function App() {
                       </div>
                       <div>
                         <p className="text-sm text-foreground font-medium">
-                          슬롯을 선택하세요
+                          {t("selectSlot")}
                         </p>
                         <p className="text-xs text-muted-foreground mt-1">
-                          캔버스에서 사진 슬롯을 클릭
+                          {t("clickSlot")}
                         </p>
                       </div>
                     </div>
@@ -1021,7 +1526,7 @@ export default function App() {
                             data-ocid="edit.upload_button"
                           >
                             <ImagePlus className="w-3.5 h-3.5" />
-                            사진 변경
+                            {t("addPhoto")}
                           </Button>
                         </div>
 
@@ -1054,7 +1559,7 @@ export default function App() {
                         <div className="space-y-2">
                           <div className="flex items-center justify-between">
                             <Label className="text-xs text-muted-foreground uppercase tracking-wider">
-                              회전
+                              {t("rotate")}
                             </Label>
                             <button
                               type="button"
@@ -1069,7 +1574,7 @@ export default function App() {
                               data-ocid="edit.rotation.button"
                             >
                               <RotateCcw className="w-3 h-3" />
-                              초기화
+                              {t("reset")}
                             </button>
                           </div>
                           <div className="flex items-center gap-3">
@@ -1093,7 +1598,7 @@ export default function App() {
                         {/* Flip */}
                         <div className="space-y-2">
                           <Label className="text-xs text-muted-foreground uppercase tracking-wider">
-                            반전
+                            {t("flip")}
                           </Label>
                           <div className="flex gap-2">
                             <Button
@@ -1106,7 +1611,7 @@ export default function App() {
                               data-ocid="edit.flip.h.toggle"
                             >
                               <FlipHorizontal2 className="w-4 h-4" />
-                              좌우
+                              {t("flipH")}
                             </Button>
                             <Button
                               variant={sel.flipV ? "default" : "outline"}
@@ -1118,7 +1623,7 @@ export default function App() {
                               data-ocid="edit.flip.v.toggle"
                             >
                               <FlipVertical2 className="w-4 h-4" />
-                              상하
+                              {t("flipV")}
                             </Button>
                           </div>
                         </div>
@@ -1126,7 +1631,7 @@ export default function App() {
                         {/* Filters */}
                         <div className="space-y-2">
                           <Label className="text-xs text-muted-foreground uppercase tracking-wider">
-                            필터
+                            {t("filter")}
                           </Label>
                           <div className="flex flex-wrap gap-1.5">
                             {FILTERS.map((f) => (
@@ -1153,7 +1658,7 @@ export default function App() {
                         <div className="space-y-3">
                           <div className="flex items-center justify-between">
                             <Label className="text-xs text-muted-foreground uppercase tracking-wider">
-                              조정
+                              {t("adjust")}
                             </Label>
                             <button
                               type="button"
@@ -1171,49 +1676,49 @@ export default function App() {
                               data-ocid="edit.adjustment.button"
                             >
                               <RotateCcw className="w-3 h-3" />
-                              초기화
+                              {t("reset")}
                             </button>
                           </div>
                           <div className="space-y-2.5">
                             {[
                               {
                                 key: "brightness" as const,
-                                label: "밝기",
+                                label: t("brightness"),
                                 min: 0,
                                 max: 200,
                                 def: 100,
                               },
                               {
                                 key: "contrast" as const,
-                                label: "대조",
+                                label: t("contrast"),
                                 min: 0,
                                 max: 200,
                                 def: 100,
                               },
                               {
                                 key: "saturation" as const,
-                                label: "채도",
+                                label: t("saturation"),
                                 min: 0,
                                 max: 200,
                                 def: 100,
                               },
                               {
                                 key: "temperature" as const,
-                                label: "색온도",
+                                label: t("temperature"),
                                 min: -100,
                                 max: 100,
                                 def: 0,
                               },
                               {
                                 key: "shadow" as const,
-                                label: "쉐도우",
+                                label: t("shadow"),
                                 min: 0,
                                 max: 100,
                                 def: 0,
                               },
                               {
                                 key: "vignette" as const,
-                                label: "비네팅",
+                                label: t("vignette"),
                                 min: 0,
                                 max: 100,
                                 def: 0,
@@ -1268,7 +1773,7 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <Calendar className="w-4 h-4 text-primary" />
                       <span className="text-xs font-semibold uppercase tracking-widest">
-                        날짜 스탬프
+                        {t("dateStamp")}
                       </span>
                     </div>
                     <div className="flex items-center justify-between p-3 rounded-lg bg-muted/40 border border-border">
@@ -1290,14 +1795,14 @@ export default function App() {
                       >
                         <div className="space-y-2 pt-1">
                           <Label className="text-xs text-muted-foreground">
-                            위치
+                            {t("position")}
                           </Label>
                           <div className="grid grid-cols-2 gap-1.5">
                             {[
-                              { id: "tl" as DatePos, label: "좌상" },
-                              { id: "tr" as DatePos, label: "우상" },
-                              { id: "bl" as DatePos, label: "좌하" },
-                              { id: "br" as DatePos, label: "우하" },
+                              { id: "tl" as DatePos, labelKey: "positionTL" },
+                              { id: "tr" as DatePos, labelKey: "positionTR" },
+                              { id: "bl" as DatePos, labelKey: "positionBL" },
+                              { id: "br" as DatePos, labelKey: "positionBR" },
                             ].map((p) => (
                               <button
                                 type="button"
@@ -1310,7 +1815,7 @@ export default function App() {
                                     : "border-border text-muted-foreground hover:border-primary/40"
                                 }`}
                               >
-                                {p.label}
+                                {t(p.labelKey)}
                               </button>
                             ))}
                           </div>
@@ -1326,7 +1831,7 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <Type className="w-4 h-4 text-primary" />
                       <span className="text-xs font-semibold uppercase tracking-widest">
-                        텍스트
+                        {t("text")}
                       </span>
                     </div>
 
@@ -1334,7 +1839,7 @@ export default function App() {
                       value={newText}
                       onChange={(e) => setNewText(e.target.value)}
                       onKeyDown={(e) => e.key === "Enter" && addText()}
-                      placeholder="텍스트 입력..."
+                      placeholder={t("textPlaceholder")}
                       data-ocid="overlay.text.input"
                       className="bg-input border-border text-foreground placeholder:text-muted-foreground"
                     />
@@ -1342,7 +1847,7 @@ export default function App() {
                     {/* Font style toggles: B / I / U */}
                     <div className="flex items-center gap-2">
                       <Label className="text-xs text-muted-foreground flex-1">
-                        스타일
+                        {t("style")}
                       </Label>
                       <button
                         type="button"
@@ -1353,7 +1858,7 @@ export default function App() {
                             ? "bg-primary text-primary-foreground border-primary"
                             : "border-border text-foreground hover:bg-muted"
                         }`}
-                        title="굵게"
+                        title={t("style")}
                       >
                         <Bold className="w-3.5 h-3.5 mx-auto" />
                       </button>
@@ -1366,7 +1871,7 @@ export default function App() {
                             ? "bg-primary text-primary-foreground border-primary"
                             : "border-border text-foreground hover:bg-muted"
                         }`}
-                        title="기울기"
+                        title={t("style")}
                       >
                         <Italic className="w-3.5 h-3.5 mx-auto" />
                       </button>
@@ -1379,7 +1884,7 @@ export default function App() {
                             ? "bg-primary text-primary-foreground border-primary"
                             : "border-border text-foreground hover:bg-muted"
                         }`}
-                        title="밑줄"
+                        title={t("style")}
                       >
                         <Underline className="w-3.5 h-3.5 mx-auto" />
                       </button>
@@ -1388,7 +1893,7 @@ export default function App() {
                     {/* Font family selector */}
                     <div className="space-y-1">
                       <Label className="text-xs text-muted-foreground">
-                        폰트
+                        {t("font")}
                       </Label>
                       <select
                         value={newTextFont}
@@ -1414,7 +1919,7 @@ export default function App() {
                     <div className="flex gap-2">
                       <div className="flex-1 space-y-1">
                         <Label className="text-xs text-muted-foreground">
-                          크기 (px)
+                          {t("size")}
                         </Label>
                         <Input
                           type="number"
@@ -1430,7 +1935,7 @@ export default function App() {
                       </div>
                       <div className="space-y-1">
                         <Label className="text-xs text-muted-foreground">
-                          색상
+                          {t("color")}
                         </Label>
                         <div className="relative">
                           <input
@@ -1454,7 +1959,7 @@ export default function App() {
                       className="w-full bg-primary text-primary-foreground hover:opacity-90"
                       data-ocid="overlay.text.submit_button"
                     >
-                      텍스트 추가
+                      {t("addText")}
                     </Button>
 
                     {textOverlays.length > 0 && (
@@ -1512,7 +2017,7 @@ export default function App() {
                     <div className="flex items-center gap-2">
                       <Smile className="w-4 h-4 text-primary" />
                       <span className="text-xs font-semibold uppercase tracking-widest">
-                        스티커
+                        {t("sticker")}
                       </span>
                     </div>
                     <div className="grid grid-cols-5 gap-1">
@@ -1555,7 +2060,7 @@ export default function App() {
                     )}
                     {stickers.length > 0 && (
                       <p className="text-xs text-muted-foreground">
-                        드래그로 이동, 모서리 핸들로 크기/회전 조정
+                        {t("dragHint")}
                       </p>
                     )}
                   </div>
@@ -1573,7 +2078,7 @@ export default function App() {
                   {/* Presets */}
                   <div className="space-y-3">
                     <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                      스타일 프리셋
+                      {t("stylePreset")}
                     </Label>
                     <div className="grid grid-cols-3 gap-2">
                       {(
@@ -1603,7 +2108,9 @@ export default function App() {
                           <span
                             className={`text-xs font-medium ${framePreset === key ? "text-primary" : "text-muted-foreground"}`}
                           >
-                            {p.name}
+                            {t(
+                              `preset${key.charAt(0).toUpperCase()}${key.slice(1)}`,
+                            )}
                           </span>
                         </button>
                       ))}
@@ -1615,7 +2122,7 @@ export default function App() {
                   {/* Border color - pastel swatches */}
                   <div className="space-y-2">
                     <Label className="text-xs text-muted-foreground uppercase tracking-wider">
-                      테두리 색상
+                      {t("borderColor")}
                     </Label>
                     <div className="flex flex-wrap gap-2">
                       {PASTEL_BORDER_COLORS.map((c) => (
@@ -1655,7 +2162,7 @@ export default function App() {
                   {/* Border width */}
                   <div className="space-y-2">
                     <Label className="text-xs text-muted-foreground uppercase tracking-wider">
-                      여백 — {borderWidth}px
+                      {t("margin")} — {borderWidth}px
                     </Label>
                     <Slider
                       data-ocid="frame.border.width.input"
@@ -1675,7 +2182,7 @@ export default function App() {
                   {/* Bg color - pastel swatches */}
                   <div className="space-y-2">
                     <Label className="text-xs text-muted-foreground uppercase tracking-wider">
-                      배경 색상
+                      {t("bgColor")}
                     </Label>
                     <div className="flex flex-wrap gap-2">
                       {PASTEL_BG_COLORS.map((c) => (
@@ -1710,14 +2217,14 @@ export default function App() {
                   {/* Patterns */}
                   <div className="space-y-3">
                     <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                      배경 패턴
+                      {t("bgPattern")}
                     </Label>
                     <div className="grid grid-cols-4 gap-2">
                       <button
                         type="button"
                         onClick={() => setBgPattern(null)}
                         data-ocid="pattern.item.1"
-                        title="패턴 없음"
+                        title={t("noPattern")}
                         className={`relative w-full aspect-square rounded-md border-2 transition-all overflow-hidden ${
                           bgPattern === null
                             ? "border-primary shadow-sm scale-105"
@@ -1726,7 +2233,7 @@ export default function App() {
                         style={{ background: bgColor }}
                       >
                         <span className="text-[9px] text-muted-foreground font-medium leading-tight absolute inset-0 flex items-center justify-center">
-                          없음
+                          {t("noPattern")}
                         </span>
                       </button>
                       {CHECK_PATTERNS.map((p, i) => (
@@ -1760,7 +2267,7 @@ export default function App() {
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
-                        SONA STUDIO 로고
+                        {t("logoLabel")}
                       </Label>
                       <Switch
                         checked={logoEnabled}
@@ -1777,7 +2284,7 @@ export default function App() {
                       >
                         <div className="space-y-1.5">
                           <Label className="text-xs text-muted-foreground">
-                            위치
+                            {t("logoPosition")}
                           </Label>
                           <Select
                             value={logoPosition}
@@ -1793,17 +2300,17 @@ export default function App() {
                             </SelectTrigger>
                             <SelectContent>
                               {(
-                                Object.entries(LOGO_POSITION_LABELS) as [
+                                Object.entries(LOGO_POSITION_KEYS) as [
                                   LogoPosition,
                                   string,
                                 ][]
-                              ).map(([k, label]) => (
+                              ).map(([k, tKey]) => (
                                 <SelectItem
                                   key={k}
                                   value={k}
                                   className="text-xs"
                                 >
-                                  {label}
+                                  {t(tKey)}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -1811,7 +2318,7 @@ export default function App() {
                         </div>
                         <div className="space-y-1.5">
                           <Label className="text-xs text-muted-foreground">
-                            색상
+                            {t("logoColor")}
                           </Label>
                           <div className="flex items-center gap-3">
                             <div className="relative">
@@ -1841,6 +2348,659 @@ export default function App() {
           </Tabs>
         </aside>
       </main>
+
+      {/* Mobile Bottom Tab Bar */}
+      <nav className="no-print md:hidden fixed bottom-0 left-0 right-0 z-50 bg-card border-t border-border flex items-stretch h-16">
+        {[
+          {
+            id: "layout",
+            icon: <LayoutGrid className="w-5 h-5" />,
+            label: t("mobileLayout"),
+          },
+          {
+            id: "edit",
+            icon: <SlidersHorizontal className="w-5 h-5" />,
+            label: t("mobileEdit"),
+          },
+          {
+            id: "text",
+            icon: <Type className="w-5 h-5" />,
+            label: t("mobileText"),
+          },
+          {
+            id: "sticker",
+            icon: <Smile className="w-5 h-5" />,
+            label: t("mobileSticker"),
+          },
+          {
+            id: "frame",
+            icon: <Frame className="w-5 h-5" />,
+            label: t("mobileFrame"),
+          },
+        ].map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            data-ocid={`mobile.${tab.id}.tab`}
+            onClick={() => {
+              if (mobileTab === tab.id && mobileDrawerOpen) {
+                setMobileDrawerOpen(false);
+              } else {
+                setMobileTab(tab.id);
+                setMobileDrawerOpen(true);
+              }
+            }}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 text-[10px] font-medium transition-colors min-h-[44px] ${
+              mobileTab === tab.id && mobileDrawerOpen
+                ? "text-primary"
+                : "text-muted-foreground"
+            }`}
+          >
+            {tab.icon}
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* Mobile Drawer Panel */}
+      <Drawer
+        open={mobileDrawerOpen && isMobile}
+        onOpenChange={(open) => {
+          if (!open) setMobileDrawerOpen(false);
+        }}
+        direction="bottom"
+      >
+        <DrawerContent className="md:hidden max-h-[75vh] pb-16">
+          <DrawerHeader className="flex items-center justify-between py-2 px-4 border-b border-border">
+            <DrawerTitle className="text-sm font-semibold">
+              {mobileTab === "layout" && t("mobileLayout")}
+              {mobileTab === "edit" && t("mobileEdit")}
+              {mobileTab === "text" && t("mobileText")}
+              {mobileTab === "sticker" && t("mobileSticker")}
+              {mobileTab === "frame" && t("mobileFrame")}
+            </DrawerTitle>
+            <button
+              type="button"
+              onClick={() => setMobileDrawerOpen(false)}
+              data-ocid="mobile.drawer.close_button"
+              className="p-2 rounded-md hover:bg-muted transition-colors"
+            >
+              <X className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </DrawerHeader>
+          <ScrollArea className="flex-1 overflow-y-auto">
+            <div className="p-4">
+              {/* Layout tab */}
+              {mobileTab === "layout" && (
+                <div className="space-y-4">
+                  <p className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">
+                    {t("drawerLayout")}
+                  </p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {(["4cut", "4r", "combo"] as LayoutType[]).map((l, i) => (
+                      <button
+                        type="button"
+                        key={l}
+                        data-ocid={`mobile.layout.item.${i + 1}`}
+                        onClick={() => {
+                          handleLayoutChange(l);
+                          setMobileDrawerOpen(false);
+                        }}
+                        className={`flex flex-col items-center gap-2 p-4 rounded-xl border-2 transition-all min-h-[80px] justify-center ${
+                          layout === l
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border text-muted-foreground hover:border-primary/40"
+                        }`}
+                      >
+                        <LayoutGrid className="w-6 h-6" />
+                        <span className="text-sm font-medium">
+                          {l === "4cut"
+                            ? t("layoutShort4cut")
+                            : l === "4r"
+                              ? t("layoutShort4r")
+                              : t("layoutShortCombo")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Edit tab */}
+              {mobileTab === "edit" && (
+                <div className="space-y-5">
+                  {selectedSlot === null ? (
+                    <div
+                      data-ocid="mobile.edit.empty_state"
+                      className="flex flex-col items-center justify-center py-12 text-center gap-3"
+                    >
+                      <div className="w-14 h-14 rounded-full border border-border flex items-center justify-center">
+                        <ImagePlus className="w-6 h-6 text-muted-foreground" />
+                      </div>
+                      <p className="text-sm text-foreground font-medium">
+                        {t("selectSlot")}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {t("tapSlot")}
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                          {t("slot")} {(selectedSlot ?? 0) + 1}
+                        </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-8 text-xs gap-1.5"
+                          onClick={() => openUpload(selectedSlot!)}
+                          data-ocid="mobile.edit.upload_button"
+                        >
+                          <ImagePlus className="w-3.5 h-3.5" />
+                          {t("addPhoto")}
+                        </Button>
+                      </div>
+                      {slots[selectedSlot]?.imageUrl && (
+                        <>
+                          <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                              줌 —{" "}
+                              {Math.round(
+                                (slots[selectedSlot]?.zoom ?? 1) * 100,
+                              )}
+                              %
+                            </Label>
+                            <Slider
+                              min={50}
+                              max={300}
+                              step={1}
+                              value={[
+                                Math.round(
+                                  (slots[selectedSlot]?.zoom ?? 1) * 100,
+                                ),
+                              ]}
+                              onValueChange={([v]) =>
+                                updateSlot(selectedSlot!, { zoom: v / 100 })
+                              }
+                              className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                              {t("rotate")} —{" "}
+                              {slots[selectedSlot]?.rotation ?? 0}°
+                            </Label>
+                            <Slider
+                              min={-180}
+                              max={180}
+                              step={1}
+                              value={[slots[selectedSlot]?.rotation ?? 0]}
+                              onValueChange={([v]) =>
+                                updateSlot(selectedSlot!, { rotation: v })
+                              }
+                              className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                              {t("filter")}
+                            </Label>
+                            <div className="flex flex-wrap gap-1.5">
+                              {FILTERS.map((f) => (
+                                <button
+                                  type="button"
+                                  key={f.id}
+                                  onClick={() =>
+                                    updateSlot(selectedSlot!, { filter: f.id })
+                                  }
+                                  className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all border ${slots[selectedSlot]?.filter === f.id ? "bg-primary text-primary-foreground border-transparent" : "border-border text-muted-foreground"}`}
+                                >
+                                  {f.label}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                                조정
+                              </Label>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateSlot(selectedSlot!, {
+                                    brightness: 100,
+                                    contrast: 100,
+                                    saturation: 100,
+                                    temperature: 0,
+                                    shadow: 0,
+                                    vignette: 0,
+                                  })
+                                }
+                                className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1"
+                              >
+                                <RotateCcw className="w-3 h-3" />
+                                {t("reset")}
+                              </button>
+                            </div>
+                            {[
+                              {
+                                key: "brightness" as const,
+                                label: t("brightness"),
+                                min: 0,
+                                max: 200,
+                              },
+                              {
+                                key: "contrast" as const,
+                                label: t("contrast"),
+                                min: 0,
+                                max: 200,
+                              },
+                              {
+                                key: "saturation" as const,
+                                label: t("saturation"),
+                                min: 0,
+                                max: 200,
+                              },
+                              {
+                                key: "temperature" as const,
+                                label: t("temperature"),
+                                min: -100,
+                                max: 100,
+                              },
+                              {
+                                key: "shadow" as const,
+                                label: t("shadow"),
+                                min: 0,
+                                max: 100,
+                              },
+                              {
+                                key: "vignette" as const,
+                                label: t("vignette"),
+                                min: 0,
+                                max: 100,
+                              },
+                            ].map(({ key, label, min, max }) => (
+                              <div
+                                key={key}
+                                className="grid grid-cols-[52px_1fr_32px] items-center gap-2"
+                              >
+                                <Label className="text-xs text-muted-foreground">
+                                  {label}
+                                </Label>
+                                <Slider
+                                  min={min}
+                                  max={max}
+                                  step={1}
+                                  value={[
+                                    slots[selectedSlot!]?.[key] ??
+                                      (key === "brightness" ||
+                                      key === "contrast" ||
+                                      key === "saturation"
+                                        ? 100
+                                        : 0),
+                                  ]}
+                                  onValueChange={([v]) =>
+                                    updateSlot(selectedSlot!, { [key]: v })
+                                  }
+                                  className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
+                                />
+                                <span className="text-[10px] text-muted-foreground text-right tabular-nums">
+                                  {slots[selectedSlot!]?.[key] ?? 0}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Text tab */}
+              {mobileTab === "text" && (
+                <div className="space-y-4">
+                  <Input
+                    value={newText}
+                    onChange={(e) => setNewText(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addText()}
+                    placeholder={t("textPlaceholder")}
+                    data-ocid="mobile.overlay.text.input"
+                    className="bg-input border-border text-foreground"
+                  />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant={newTextBold ? "default" : "outline"}
+                      size="sm"
+                      className="h-9 w-9 p-0"
+                      onClick={() => setNewTextBold((v) => !v)}
+                    >
+                      <Bold className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={newTextItalic ? "default" : "outline"}
+                      size="sm"
+                      className="h-9 w-9 p-0"
+                      onClick={() => setNewTextItalic((v) => !v)}
+                    >
+                      <Italic className="w-4 h-4" />
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={newTextUnderline ? "default" : "outline"}
+                      size="sm"
+                      className="h-9 w-9 p-0"
+                      onClick={() => setNewTextUnderline((v) => !v)}
+                    >
+                      <Underline className="w-4 h-4" />
+                    </Button>
+                    <select
+                      value={newTextFont}
+                      onChange={(e) => setNewTextFont(e.target.value)}
+                      className="flex-1 text-xs border border-border rounded-md h-9 px-2 bg-input text-foreground"
+                    >
+                      <option value="sans-serif">고딕</option>
+                      <option value="serif">명조</option>
+                      <option value="'Nanum Myeongjo', serif">나눔명조</option>
+                      <option value="'Nanum Gothic', sans-serif">
+                        나눔고딕
+                      </option>
+                      <option value="cursive">손글씨</option>
+                      <option value="'Playfair Display', serif">
+                        플레이페어
+                      </option>
+                    </select>
+                  </div>
+                  <div className="flex gap-2">
+                    <div className="flex-1 space-y-1">
+                      <Label className="text-xs text-muted-foreground">
+                        크기 (px)
+                      </Label>
+                      <Input
+                        type="number"
+                        min={10}
+                        max={64}
+                        value={newTextSize}
+                        onChange={(e) => setNewTextSize(Number(e.target.value))}
+                        className="bg-input border-border text-foreground h-9 text-sm"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label className="text-xs text-muted-foreground">
+                        색상
+                      </Label>
+                      <div className="relative">
+                        <input
+                          type="color"
+                          value={newTextColor}
+                          onChange={(e) => setNewTextColor(e.target.value)}
+                          className="absolute inset-0 opacity-0 cursor-pointer"
+                        />
+                        <div
+                          className="w-9 h-9 rounded border border-border"
+                          style={{ background: newTextColor }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+                  <Button
+                    onClick={addText}
+                    size="sm"
+                    className="w-full bg-primary text-primary-foreground"
+                    data-ocid="mobile.overlay.text.submit_button"
+                  >
+                    {t("addText")}
+                  </Button>
+                  {textOverlays.length > 0 && (
+                    <div className="space-y-1.5 mt-2">
+                      {textOverlays.map((t, i) => (
+                        <div
+                          key={t.id}
+                          className="flex items-center justify-between p-2 rounded-md bg-muted/30 border border-border text-xs"
+                        >
+                          <span
+                            className="truncate max-w-[180px]"
+                            style={{
+                              color: t.color,
+                              fontWeight: t.bold ? "bold" : "normal",
+                              fontStyle: t.italic ? "italic" : "normal",
+                              textDecoration: t.underline
+                                ? "underline"
+                                : "none",
+                            }}
+                          >
+                            {t.text}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTextOverlays((prev) =>
+                                prev.filter((x) => x.id !== t.id),
+                              )
+                            }
+                            data-ocid={`mobile.overlay.text.delete_button.${i + 1}`}
+                            className="text-muted-foreground hover:text-destructive ml-2"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Sticker tab */}
+              {mobileTab === "sticker" && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-6 gap-1">
+                    {STICKER_EMOJIS.map((e) => (
+                      <button
+                        type="button"
+                        key={e}
+                        onClick={() => addSticker(e)}
+                        data-ocid="mobile.overlay.sticker.button"
+                        className="text-2xl py-2.5 rounded-lg hover:bg-accent transition-colors"
+                      >
+                        {e}
+                      </button>
+                    ))}
+                  </div>
+                  {stickers.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {stickers.map((s, i) => (
+                        <div
+                          key={s.id}
+                          className="flex items-center gap-1 px-2 py-1 rounded-full bg-muted/40 border border-border text-xs"
+                        >
+                          <span>{s.emoji}</span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setStickers((prev) =>
+                                prev.filter((x) => x.id !== s.id),
+                              )
+                            }
+                            data-ocid={`mobile.overlay.sticker.delete_button.${i + 1}`}
+                            className="text-muted-foreground hover:text-destructive"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Frame tab */}
+              {mobileTab === "frame" && (
+                <div className="space-y-5">
+                  <div className="space-y-3">
+                    <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      {t("stylePreset")}
+                    </Label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(
+                        Object.entries(FRAME_PRESETS) as [
+                          FramePreset,
+                          (typeof FRAME_PRESETS)[FramePreset],
+                        ][]
+                      ).map(([key, p]) => (
+                        <button
+                          type="button"
+                          key={key}
+                          onClick={() => applyPreset(key)}
+                          data-ocid="mobile.frame.preset.toggle"
+                          className={`flex flex-col items-center gap-2 p-3 rounded-lg border transition-all ${framePreset === key ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"}`}
+                        >
+                          <div
+                            className="w-8 h-10 rounded border-2"
+                            style={{
+                              background: p.bgColor,
+                              borderColor: p.borderColor,
+                            }}
+                          />
+                          <span
+                            className={`text-xs font-medium ${framePreset === key ? "text-primary" : "text-muted-foreground"}`}
+                          >
+                            {t(
+                              `preset${key.charAt(0).toUpperCase()}${key.slice(1)}`,
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <Separator className="bg-border" />
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                      {t("borderColor")}
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {PASTEL_BORDER_COLORS.map((c) => (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          title={c.name}
+                          data-ocid="mobile.frame.border.color.toggle"
+                          onClick={() =>
+                            setBorderColor(
+                              c.hex === "transparent" ? "transparent" : c.hex,
+                            )
+                          }
+                          className="relative transition-transform hover:scale-110"
+                          style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: "50%",
+                            background:
+                              c.hex === "transparent"
+                                ? "linear-gradient(135deg, #fff 45%, #f00 45%, #f00 55%, #fff 55%)"
+                                : c.hex,
+                            border:
+                              borderColor === c.hex
+                                ? "2.5px solid oklch(0.55 0.15 265)"
+                                : "1.5px solid rgba(0,0,0,0.15)",
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label className="text-xs text-muted-foreground uppercase tracking-wider">
+                      {t("margin")} — {borderWidth}px
+                    </Label>
+                    <Slider
+                      min={0}
+                      max={40}
+                      step={1}
+                      value={[borderWidth]}
+                      onValueChange={([v]) => setBorderWidth(v)}
+                      className="[&_[role=slider]]:bg-primary [&_[role=slider]]:border-primary"
+                    />
+                  </div>
+                  <Separator className="bg-border" />
+                  <div className="space-y-3">
+                    <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      {t("bgColor")}
+                    </Label>
+                    <div className="flex flex-wrap gap-2">
+                      {PASTEL_BG_COLORS.map((c) => (
+                        <button
+                          key={c.hex}
+                          type="button"
+                          title={c.name}
+                          data-ocid="mobile.frame.bg.color.toggle"
+                          onClick={() => setBgColor(c.hex)}
+                          className="relative transition-transform hover:scale-110"
+                          style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: "50%",
+                            background: c.hex,
+                            border:
+                              bgColor === c.hex
+                                ? "2.5px solid oklch(0.55 0.15 265)"
+                                : "1.5px solid rgba(0,0,0,0.15)",
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      {t("bgPattern")}
+                    </Label>
+                    <div className="grid grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setBgPattern(null)}
+                        data-ocid="mobile.pattern.item.1"
+                        className={`relative w-full aspect-square rounded-md border-2 transition-all overflow-hidden ${bgPattern === null ? "border-primary shadow-sm scale-105" : "border-border"}`}
+                        style={{ background: bgColor }}
+                      >
+                        <span className="text-[9px] text-muted-foreground font-medium absolute inset-0 flex items-center justify-center">
+                          {t("noPattern")}
+                        </span>
+                      </button>
+                      {CHECK_PATTERNS.map((p, i) => (
+                        <button
+                          type="button"
+                          key={p.id}
+                          onClick={() => setBgPattern(p.css)}
+                          data-ocid={`mobile.pattern.item.${i + 2}`}
+                          title={p.name}
+                          className={`relative w-full aspect-square rounded-md border-2 transition-all overflow-hidden ${bgPattern === p.css ? "border-primary shadow-sm scale-105" : "border-border"}`}
+                          style={{ background: p.css }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <Separator className="bg-border" />
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                        {t("logoLabel")}
+                      </Label>
+                      <Switch
+                        checked={logoEnabled}
+                        onCheckedChange={setLogoEnabled}
+                        data-ocid="mobile.frame.logo.switch"
+                        className="data-[state=checked]:bg-primary"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </ScrollArea>
+        </DrawerContent>
+      </Drawer>
 
       {/* Footer */}
       <footer className="no-print border-t border-border bg-card py-3 px-6 text-center text-xs text-muted-foreground">
@@ -1883,6 +3043,7 @@ interface StudioCompositionProps {
   onUpdateSticker: (id: string, patch: Partial<StickerItem>) => void;
   onDeleteText: (id: string) => void;
   onDeleteSticker: (id: string) => void;
+  addPhotoLabel: string;
 }
 
 // ─── CutGuideLine component ───────────────────────────────────────────────────
@@ -1939,7 +3100,7 @@ function StudioComposition({
   logoEnabled,
   logoPosition,
   logoColor,
-  borderColor,
+  borderColor: _borderColor,
   onSlotClick,
   onUpload,
   onUpdateSlot,
@@ -1947,6 +3108,7 @@ function StudioComposition({
   onUpdateSticker,
   onDeleteText,
   onDeleteSticker,
+  addPhotoLabel,
 }: StudioCompositionProps) {
   const gap = borderWidth;
 
@@ -1964,6 +3126,7 @@ function StudioComposition({
         h={h}
         onSelect={onSlotClick}
         onUpload={onUpload}
+        addPhotoLabel={addPhotoLabel}
         onPan={(i, panX, panY) => onUpdateSlot(i, { panX, panY })}
       />
     );
@@ -2040,27 +3203,27 @@ function StudioComposition({
                 justifyContent: "center",
               }}
             >
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  letterSpacing: "0.18em",
-                  color: borderColor === "#ffffff" ? "#888" : borderColor,
-                  fontFamily: "'Plus Jakarta Sans', sans-serif",
-                  textTransform: "uppercase",
-                  opacity: 0.85,
-                  userSelect: "none",
-                }}
-              >
-                SONA STUDIO
-              </span>
+              {logoEnabled && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.18em",
+                    color: logoColor,
+                    fontFamily: "'Plus Jakarta Sans', sans-serif",
+                    textTransform: "uppercase",
+                    opacity: 0.85,
+                    userSelect: "none",
+                  }}
+                >
+                  SONA STUDIO
+                </span>
+              )}
             </div>
             {/* Photo slots */}
             <div
               style={{
                 padding: gap,
-                paddingTop: 0,
-                paddingBottom: 0,
                 display: "flex",
                 flexDirection: "column",
                 gap,
@@ -2078,45 +3241,45 @@ function StudioComposition({
                 justifyContent: "center",
               }}
             >
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 700,
-                  letterSpacing: "0.18em",
-                  color: borderColor === "#ffffff" ? "#888" : borderColor,
-                  fontFamily: "'Plus Jakarta Sans', sans-serif",
-                  textTransform: "uppercase",
-                  opacity: 0.85,
-                  userSelect: "none",
-                }}
-              >
-                SONA STUDIO
-              </span>
+              {logoEnabled && (
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: "0.18em",
+                    color: logoColor,
+                    fontFamily: "'Plus Jakarta Sans', sans-serif",
+                    textTransform: "uppercase",
+                    opacity: 0.85,
+                    userSelect: "none",
+                  }}
+                >
+                  SONA STUDIO
+                </span>
+              )}
             </div>
-            {/* Bottom outer margin: same as frame gap */}
-            <div style={{ height: gap }} />
           </div>
-          {/* Top cut guide: center of top logo area */}
+          {/* Top cut guide: center of gap between top logo and photo 0 */}
           <CutGuideLine
             orientation="horizontal"
-            position={Math.floor(LOGO_AREA_4R / 2)}
+            position={LOGO_AREA_4R + Math.floor(gap / 2)}
             length={SLOT_W_4R + gap * 2}
           />
           {/* Middle cut guide: center of gap between two 4R photos */}
           <CutGuideLine
             orientation="horizontal"
-            position={LOGO_AREA_4R + SLOT_H_4R + Math.floor(gap / 2)}
+            position={LOGO_AREA_4R + gap + SLOT_H_4R + Math.floor(gap / 2)}
             length={SLOT_W_4R + gap * 2}
           />
-          {/* Bottom cut guide: below bottom logo area, center of bottom outer margin */}
+          {/* Bottom cut guide: center of gap between photo 1 and bottom logo */}
           <CutGuideLine
             orientation="horizontal"
             position={
               LOGO_AREA_4R +
+              gap +
               SLOT_H_4R +
               gap +
               SLOT_H_4R +
-              LOGO_AREA_4R +
               Math.floor(gap / 2)
             }
             length={SLOT_W_4R + gap * 2}
@@ -2171,20 +3334,22 @@ function StudioComposition({
                   justifyContent: "center",
                 }}
               >
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    letterSpacing: "0.18em",
-                    color: borderColor === "#ffffff" ? "#888" : borderColor,
-                    fontFamily: "'Plus Jakarta Sans', sans-serif",
-                    textTransform: "uppercase",
-                    opacity: 0.85,
-                    userSelect: "none",
-                  }}
-                >
-                  SONA STUDIO
-                </span>
+                {logoEnabled && (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      letterSpacing: "0.18em",
+                      color: logoColor,
+                      fontFamily: "'Plus Jakarta Sans', sans-serif",
+                      textTransform: "uppercase",
+                      opacity: 0.85,
+                      userSelect: "none",
+                    }}
+                  >
+                    SONA STUDIO
+                  </span>
+                )}
               </div>
               {/* ✂ Cut guide 1: vertical between two 4R photos */}
               <CutGuideLine
@@ -2201,9 +3366,7 @@ function StudioComposition({
               {/* ✂ Cut guide 3: horizontal above bottom logo area, centered in bottom margin */}
               <CutGuideLine
                 orientation="horizontal"
-                position={
-                  gap + SLOT_H_4R + gap * 2 + smallH + Math.floor(gap / 2)
-                }
+                position={gap + SLOT_H_4R + gap * 2 + smallH + gap}
                 length={comboW}
               />
             </>
@@ -2234,7 +3397,7 @@ function StudioComposition({
       ))}
 
       {/* ── Single configurable logo (not shown for 4r which has built-in logos) */}
-      {logoEnabled && layout !== "4r" && (
+      {logoEnabled && layout === "4cut" && (
         <div style={getLogoStyle(logoPosition, logoColor)}>SONA STUDIO</div>
       )}
     </div>
@@ -2252,6 +3415,7 @@ function SlotButton({
   onSelect,
   onUpload,
   onPan,
+  addPhotoLabel,
 }: {
   idx: number;
   slot: SlotState;
@@ -2261,6 +3425,7 @@ function SlotButton({
   onSelect: (idx: number) => void;
   onUpload: (idx: number) => void;
   onPan: (idx: number, panX: number, panY: number) => void;
+  addPhotoLabel: string;
 }) {
   const dragRef = useRef<{
     startX: number;
@@ -2359,7 +3524,7 @@ function SlotButton({
             className="text-muted-foreground"
             style={{ fontSize: Math.min(w, h) * 0.07 }}
           >
-            사진 추가
+            {addPhotoLabel}
           </span>
         </div>
       )}
@@ -2483,7 +3648,7 @@ function TextOverlayItem({
     >
       {/* Rotate handle – top center */}
       <div
-        className="absolute transition-opacity"
+        className="no-print absolute transition-opacity"
         style={{
           top: -22,
           left: "50%",
@@ -2523,7 +3688,7 @@ function TextOverlayItem({
       />
       {/* Connector line */}
       <div
-        className="absolute pointer-events-none"
+        className="no-print absolute pointer-events-none"
         style={{
           top: -10,
           left: "50%",
@@ -2538,7 +3703,7 @@ function TextOverlayItem({
       {/* Delete button */}
       <button
         type="button"
-        className="absolute opacity-0 group-hover:opacity-100 transition-opacity"
+        className="no-print absolute opacity-0 group-hover:opacity-100 transition-opacity"
         style={{
           top: -12,
           right: -12,
@@ -2644,7 +3809,7 @@ function TextOverlayItem({
 
       {/* Resize handle – bottom right */}
       <div
-        className="absolute"
+        className="no-print absolute"
         style={{
           bottom: -6,
           right: -6,
@@ -2674,7 +3839,7 @@ function TextOverlayItem({
 
       {/* Hover outline */}
       <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+        className="no-print absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
         style={{
           outline: "1.5px dashed rgba(99,102,241,0.6)",
           outlineOffset: 3,
@@ -2776,7 +3941,7 @@ function StickerOverlayItem({
     >
       {/* Rotate handle – top center */}
       <div
-        className="absolute transition-opacity"
+        className="no-print absolute transition-opacity"
         style={{
           top: -22,
           left: "50%",
@@ -2816,7 +3981,7 @@ function StickerOverlayItem({
       />
       {/* Connector */}
       <div
-        className="absolute pointer-events-none"
+        className="no-print absolute pointer-events-none"
         style={{
           top: -10,
           left: "50%",
@@ -2831,7 +3996,7 @@ function StickerOverlayItem({
       {/* Delete button */}
       <button
         type="button"
-        className="absolute opacity-0 group-hover:opacity-100 transition-opacity"
+        className="no-print absolute opacity-0 group-hover:opacity-100 transition-opacity"
         style={{
           top: -12,
           right: -12,
@@ -2874,7 +4039,7 @@ function StickerOverlayItem({
 
       {/* Resize handle – bottom right */}
       <div
-        className="absolute"
+        className="no-print absolute"
         style={{
           bottom: -6,
           right: -6,
@@ -2904,7 +4069,7 @@ function StickerOverlayItem({
 
       {/* Hover outline */}
       <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
+        className="no-print absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none"
         style={{
           outline: "1.5px dashed rgba(245,158,11,0.6)",
           outlineOffset: 3,

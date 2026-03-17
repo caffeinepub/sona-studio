@@ -108,5 +108,25 @@
 @media print {
   .no-print { display: none !important; }
   body { background: white; }
-  .studio-composition { box-shadow: none; }
+  .studio-composition { box-shadow: none; print-color-adjust: exact !important; -webkit-print-color-adjust: exact !important; }
+}
+
+/* Force single page print */
+@page {
+  size: auto;
+  margin: 0;
+}
+
+@media print {
+  html, body {
+    height: 100%;
+    overflow: hidden !important;
+  }
+  body > * {
+    overflow: hidden !important;
+  }
+  .studio-composition {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
 }
