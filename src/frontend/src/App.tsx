@@ -1,3 +1,13 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Drawer,
@@ -80,6 +90,8 @@ interface SlotState {
   vignette: number;
   naturalW: number;
   naturalH: number;
+  filmDate: boolean;
+  filmDateStr: string;
 }
 
 interface TextOverlay {
@@ -131,6 +143,8 @@ const defaultSlot = (): SlotState => ({
   vignette: 0,
   naturalW: 0,
   naturalH: 0,
+  filmDate: false,
+  filmDateStr: new Date().toISOString().slice(0, 10).replace(/-/g, "."),
 });
 
 const getSlotCount = (layout: LayoutType) => {
@@ -471,6 +485,16 @@ const translations: Record<Language, Record<string, string>> = {
     toastSaveError: "Save failed.",
     // Language toggle
     langToggle: "KO",
+    // Film date stamp
+    filmDateLabel: "Film Date Stamp",
+    filmDateEnabled: "Enable",
+    filmDateStr: "Date Text",
+    // Layout change dialog
+    layoutChangeTitle: "Change Layout",
+    layoutChangeDesc: "Save current layout before switching?",
+    layoutChangeSave: "Save & Switch",
+    layoutChangeDontSave: "Don't Save",
+    layoutChangeCancel: "Cancel",
   },
   ko: {
     // Header
@@ -571,6 +595,16 @@ const translations: Record<Language, Record<string, string>> = {
     toastSaveError: "저장에 실패했습니다.",
     // Language toggle
     langToggle: "EN",
+    // Film date stamp
+    filmDateLabel: "필름 날짜 스탬프",
+    filmDateEnabled: "활성화",
+    filmDateStr: "날짜 텍스트",
+    // Layout change dialog
+    layoutChangeTitle: "레이아웃 변경",
+    layoutChangeDesc: "현재 레이아웃을 저장하시겠습니까?",
+    layoutChangeSave: "저장 후 변경",
+    layoutChangeDontSave: "저장 안함",
+    layoutChangeCancel: "취소",
   },
 };
 
@@ -582,6 +616,7 @@ export default function App() {
     Array.from({ length: 4 }, defaultSlot),
   );
   const [selectedSlot, setSelectedSlot] = useState<number | null>(null);
+  const [swapSlot, setSwapSlot] = useState<number | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const isMobile = useIsMobile();
   const [mobileTab, setMobileTab] = useState<string>("");
@@ -623,14 +658,38 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingSlotRef = useRef<number | null>(null);
 
+  // ── Layout change dialog
+  const [pendingLayout, setPendingLayout] = useState<LayoutType | null>(null);
+  const [layoutSaveDialogOpen, setLayoutSaveDialogOpen] = useState(false);
+
+  // ── Save name dialog
+  const [saveNameDialogOpen, setSaveNameDialogOpen] = useState(false);
+  const [saveNameInput, setSaveNameInput] = useState("sona-studio-project");
+
   // ── Layout change
-  const handleLayoutChange = useCallback((l: LayoutType) => {
+  const handleLayoutChange = useCallback(
+    (l: LayoutType) => {
+      const hasPhotos = slots.some((s) => s.imageUrl !== null);
+      if (hasPhotos) {
+        setPendingLayout(l);
+        setLayoutSaveDialogOpen(true);
+      } else {
+        setLayout(l);
+        const count = getSlotCount(l);
+        setSlots(Array.from({ length: count }, defaultSlot));
+        setSelectedSlot(null);
+      }
+    },
+    [slots],
+  );
+
+  const applyLayoutSwitch = useCallback((l: LayoutType) => {
     setLayout(l);
     const count = getSlotCount(l);
-    setSlots((prev) =>
-      Array.from({ length: count }, (_, i) => prev[i] ?? defaultSlot()),
-    );
+    setSlots(Array.from({ length: count }, defaultSlot));
     setSelectedSlot(null);
+    setPendingLayout(null);
+    setLayoutSaveDialogOpen(false);
   }, []);
 
   // ── Slot update
@@ -683,6 +742,10 @@ export default function App() {
         rotation: 0,
         naturalW: img.naturalWidth,
         naturalH: img.naturalHeight,
+        filmDateStr: (() => {
+          const d = new Date(file.lastModified);
+          return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+        })(),
       });
       setSelectedSlot(idx);
     };
@@ -738,7 +801,8 @@ export default function App() {
   // ── Project save/load
   const projectLoadRef = useRef<HTMLInputElement>(null);
 
-  const handleProjectSave = () => {
+  const confirmProjectSave = (customName?: string) => {
+    const name = customName ?? saveNameInput ?? "sona-studio-project";
     const projectData = {
       layout,
       borderColor,
@@ -761,10 +825,16 @@ export default function App() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "sona-studio-project.json";
+    a.download = `${name}.json`;
     a.click();
     URL.revokeObjectURL(url);
+    setSaveNameDialogOpen(false);
     toast.success(t("toastProjectSaved"));
+  };
+
+  const handleProjectSave = () => {
+    setSaveNameInput("sona-studio-project");
+    setSaveNameDialogOpen(true);
   };
 
   const handleProjectLoad = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1025,6 +1095,32 @@ export default function App() {
             ctx.drawImage(img, -drawW / 2, -drawH / 2, drawW, drawH);
             ctx.filter = "none";
             ctx.restore();
+
+            // Film date stamp overlay
+            if (slot.filmDate && slot.filmDateStr) {
+              ctx.save();
+              const dateText = slot.filmDateStr;
+              const dateFontSize = Math.max(9, h * 0.045);
+              ctx.font = `italic bold ${dateFontSize}px "Courier New", monospace`;
+              const dtw = ctx.measureText(dateText).width;
+              const padX = 6;
+              const padY = 4;
+              const dateX = x + w - dtw - padX * 2;
+              const dateY = y + h - padY * 2;
+              ctx.fillStyle = "rgba(0,0,0,0.55)";
+              ctx.fillRect(
+                dateX - padX,
+                dateY - dateFontSize,
+                dtw + padX * 2,
+                dateFontSize + padY,
+              );
+              ctx.fillStyle = "#f97316";
+              ctx.shadowColor = "rgba(0,0,0,0.8)";
+              ctx.shadowBlur = 2;
+              ctx.fillText(dateText, dateX, dateY);
+              ctx.restore();
+            }
+
             resolve();
           };
           img.onerror = () => resolve();
@@ -1253,6 +1349,104 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-background font-sans">
       <Toaster position="top-center" />
+
+      {/* Layout change confirmation dialog */}
+      <AlertDialog
+        open={saveNameDialogOpen}
+        onOpenChange={setSaveNameDialogOpen}
+      >
+        <AlertDialogContent data-ocid="save.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {language === "ko" ? "프로젝트 저장" : "Save Project"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {language === "ko"
+                ? "저장 파일 이름을 입력하세요"
+                : "Enter a filename for your project"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Input
+            value={saveNameInput}
+            onChange={(e) => setSaveNameInput(e.target.value)}
+            placeholder="sona-studio-project"
+            className="mt-2"
+            data-ocid="save.name.input"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                confirmProjectSave();
+              }
+            }}
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel data-ocid="save.cancel_button">
+              {language === "ko" ? "취소" : "Cancel"}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => confirmProjectSave()}
+              data-ocid="save.confirm_button"
+              className="bg-primary text-primary-foreground"
+            >
+              {language === "ko" ? "저장" : "Save"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={layoutSaveDialogOpen}
+        onOpenChange={setLayoutSaveDialogOpen}
+      >
+        <AlertDialogContent data-ocid="layout.dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("layoutChangeTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("layoutChangeDesc")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="flex-wrap gap-2">
+            <AlertDialogCancel
+              onClick={() => {
+                setLayoutSaveDialogOpen(false);
+                setPendingLayout(null);
+              }}
+              data-ocid="layout.cancel_button"
+            >
+              {t("layoutChangeCancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (pendingLayout) applyLayoutSwitch(pendingLayout);
+              }}
+              data-ocid="layout.secondary_button"
+              className="bg-muted text-foreground hover:bg-muted/80 border border-border"
+            >
+              {t("layoutChangeDontSave")}
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                handleExport();
+                if (pendingLayout) applyLayoutSwitch(pendingLayout);
+              }}
+              data-ocid="layout.save_photo_button"
+              className="bg-secondary text-secondary-foreground hover:opacity-90"
+            >
+              {language === "ko" ? "사진 저장 후 변경" : "Save Photo & Switch"}
+            </AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => {
+                confirmProjectSave();
+                if (pendingLayout) applyLayoutSwitch(pendingLayout);
+              }}
+              data-ocid="layout.confirm_button"
+              className="bg-primary text-primary-foreground hover:opacity-90"
+            >
+              {t("layoutChangeSave")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <input
         ref={fileInputRef}
         type="file"
@@ -1355,7 +1549,10 @@ export default function App() {
       {/* Main */}
       <main className="flex flex-1 overflow-hidden relative">
         {/* Canvas area */}
-        <div className="flex-1 flex items-start justify-center overflow-auto p-2 md:p-8 pb-20 md:pb-8 transition-all duration-300">
+        <div
+          className="flex-1 flex items-start justify-center overflow-auto p-2 md:p-4 pb-20 md:pb-4 transition-all duration-300"
+          style={{ minWidth: 0 }}
+        >
           <AnimatePresence mode="wait">
             <motion.div
               key={layout}
@@ -1378,6 +1575,9 @@ export default function App() {
                   width: 480,
                   minHeight: 679,
                   position: "relative",
+                  transformOrigin: "top center",
+                  transform: "scale(0.88)",
+                  marginBottom: "-82px",
                 }}
               >
                 {/* A4 label */}
@@ -1412,8 +1612,48 @@ export default function App() {
                   logoColor={logoColor}
                   borderColor={borderColor}
                   onSlotClick={(idx) => {
-                    if (!slots[idx].imageUrl) openUpload(idx);
-                    else setSelectedSlot(idx);
+                    if (!slots[idx].imageUrl) {
+                      if (swapSlot !== null) {
+                        // Drop swap into empty slot
+                        setSlots((prev) => {
+                          const next = [...prev];
+                          next[idx] = { ...prev[swapSlot] };
+                          next[swapSlot] = defaultSlot();
+                          return next;
+                        });
+                        setSwapSlot(null);
+                        setSelectedSlot(null);
+                      } else {
+                        openUpload(idx);
+                      }
+                    } else {
+                      if (swapSlot === null) {
+                        setSwapSlot(idx);
+                        setSelectedSlot(idx);
+                      } else if (swapSlot === idx) {
+                        setSwapSlot(null);
+                        setSelectedSlot(null);
+                      } else {
+                        // Perform swap
+                        setSlots((prev) => {
+                          const next = [...prev];
+                          const tmp = { ...prev[swapSlot] };
+                          next[swapSlot] = { ...prev[idx] };
+                          next[idx] = tmp;
+                          return next;
+                        });
+                        setSwapSlot(null);
+                        setSelectedSlot(idx);
+                      }
+                    }
+                  }}
+                  swapSlot={swapSlot}
+                  onClearSlot={(idx) => {
+                    setSlots((prev) =>
+                      prev.map((s, i) => (i === idx ? defaultSlot() : s)),
+                    );
+                    if (selectedSlot === idx) setSelectedSlot(null);
+                    if (swapSlot === idx) setSwapSlot(null);
                   }}
                   onUpload={openUpload}
                   onUpdateSlot={updateSlot}
@@ -1754,6 +1994,47 @@ export default function App() {
                           <Move className="w-3.5 h-3.5 shrink-0" />
                           <span>확대 후 드래그로 위치 조정</span>
                         </div>
+
+                        {/* Film date stamp */}
+                        <div className="space-y-3 pt-1">
+                          <div className="flex items-center gap-2">
+                            <Calendar className="w-4 h-4 text-primary" />
+                            <span className="text-xs font-semibold uppercase tracking-widest">
+                              {t("filmDateLabel")}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between p-3 rounded-lg bg-muted/40 border border-border">
+                            <span className="text-sm text-foreground">
+                              {t("filmDateEnabled")}
+                            </span>
+                            <Switch
+                              checked={sel.filmDate}
+                              onCheckedChange={(v) =>
+                                updateSlot(selectedSlot!, { filmDate: v })
+                              }
+                              data-ocid="edit.film_date.switch"
+                              className="data-[state=checked]:bg-primary"
+                            />
+                          </div>
+                          {sel.filmDate && (
+                            <div className="space-y-1.5">
+                              <Label className="text-xs text-muted-foreground">
+                                {t("filmDateStr")}
+                              </Label>
+                              <Input
+                                value={sel.filmDateStr}
+                                onChange={(e) =>
+                                  updateSlot(selectedSlot!, {
+                                    filmDateStr: e.target.value,
+                                  })
+                                }
+                                data-ocid="edit.film_date.input"
+                                placeholder="2026.03.17"
+                                className="bg-input border-border text-foreground font-mono text-sm"
+                              />
+                            </div>
+                          )}
+                        </div>
                       </motion.div>
                     </AnimatePresence>
                   )}
@@ -1967,35 +2248,62 @@ export default function App() {
                         data-ocid="overlay.text.list"
                         className="space-y-1.5"
                       >
-                        {textOverlays.map((t, i) => (
+                        {textOverlays.map((overlay, i) => (
                           <div
-                            key={t.id}
+                            key={overlay.id}
                             data-ocid={`overlay.text.item.${i + 1}`}
                             className="flex items-center justify-between p-2 rounded-md bg-muted/30 border border-border text-xs"
                           >
                             <span
                               className="truncate max-w-[140px]"
                               style={{
-                                color: t.color,
+                                color: overlay.color,
                                 fontSize: 13,
-                                fontWeight: t.bold ? "bold" : "normal",
-                                fontStyle: t.italic ? "italic" : "normal",
-                                textDecoration: t.underline
+                                fontWeight: overlay.bold ? "bold" : "normal",
+                                fontStyle: overlay.italic ? "italic" : "normal",
+                                textDecoration: overlay.underline
                                   ? "underline"
                                   : "none",
                               }}
                             >
-                              {t.text}
+                              {overlay.text}
                             </span>
                             <div className="flex items-center gap-1 shrink-0">
                               <span className="text-[10px] text-muted-foreground">
-                                {Math.round(t.fontSize)}px
+                                {Math.round(overlay.fontSize)}px
                               </span>
+                              <label
+                                className="cursor-pointer"
+                                title={
+                                  language === "ko"
+                                    ? "색상 변경"
+                                    : "Change color"
+                                }
+                              >
+                                <div
+                                  className="w-5 h-5 rounded-full border border-border"
+                                  style={{ background: overlay.color }}
+                                />
+                                <input
+                                  type="color"
+                                  value={overlay.color}
+                                  onChange={(e) =>
+                                    setTextOverlays((prev) =>
+                                      prev.map((x) =>
+                                        x.id === overlay.id
+                                          ? { ...x, color: e.target.value }
+                                          : x,
+                                      ),
+                                    )
+                                  }
+                                  className="sr-only"
+                                />
+                              </label>
                               <button
                                 type="button"
                                 onClick={() =>
                                   setTextOverlays((prev) =>
-                                    prev.filter((x) => x.id !== t.id),
+                                    prev.filter((x) => x.id !== overlay.id),
                                   )
                                 }
                                 data-ocid={`overlay.text.delete_button.${i + 1}`}
@@ -2652,6 +2960,48 @@ export default function App() {
                               </div>
                             ))}
                           </div>
+                          {/* Film date stamp - mobile */}
+                          <div className="space-y-3 pt-1">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="w-4 h-4 text-primary" />
+                              <span className="text-xs font-semibold uppercase tracking-widest">
+                                {t("filmDateLabel")}
+                              </span>
+                            </div>
+                            <div className="flex items-center justify-between p-3 rounded-lg bg-muted/40 border border-border">
+                              <span className="text-sm text-foreground">
+                                {t("filmDateEnabled")}
+                              </span>
+                              <Switch
+                                checked={
+                                  slots[selectedSlot!]?.filmDate ?? false
+                                }
+                                onCheckedChange={(v) =>
+                                  updateSlot(selectedSlot!, { filmDate: v })
+                                }
+                                className="data-[state=checked]:bg-primary"
+                              />
+                            </div>
+                            {slots[selectedSlot!]?.filmDate && (
+                              <div className="space-y-1.5">
+                                <Label className="text-xs text-muted-foreground">
+                                  {t("filmDateStr")}
+                                </Label>
+                                <Input
+                                  value={
+                                    slots[selectedSlot!]?.filmDateStr ?? ""
+                                  }
+                                  onChange={(e) =>
+                                    updateSlot(selectedSlot!, {
+                                      filmDateStr: e.target.value,
+                                    })
+                                  }
+                                  placeholder="2026.03.17"
+                                  className="bg-input border-border text-foreground font-mono text-sm"
+                                />
+                              </div>
+                            )}
+                          </div>
                         </>
                       )}
                     </div>
@@ -2757,36 +3107,63 @@ export default function App() {
                   </Button>
                   {textOverlays.length > 0 && (
                     <div className="space-y-1.5 mt-2">
-                      {textOverlays.map((t, i) => (
+                      {textOverlays.map((overlay, i) => (
                         <div
-                          key={t.id}
+                          key={overlay.id}
                           className="flex items-center justify-between p-2 rounded-md bg-muted/30 border border-border text-xs"
                         >
                           <span
                             className="truncate max-w-[180px]"
                             style={{
-                              color: t.color,
-                              fontWeight: t.bold ? "bold" : "normal",
-                              fontStyle: t.italic ? "italic" : "normal",
-                              textDecoration: t.underline
+                              color: overlay.color,
+                              fontWeight: overlay.bold ? "bold" : "normal",
+                              fontStyle: overlay.italic ? "italic" : "normal",
+                              textDecoration: overlay.underline
                                 ? "underline"
                                 : "none",
                             }}
                           >
-                            {t.text}
+                            {overlay.text}
                           </span>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setTextOverlays((prev) =>
-                                prev.filter((x) => x.id !== t.id),
-                              )
-                            }
-                            data-ocid={`mobile.overlay.text.delete_button.${i + 1}`}
-                            className="text-muted-foreground hover:text-destructive ml-2"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <label
+                              className="cursor-pointer"
+                              title={
+                                language === "ko" ? "색상 변경" : "Change color"
+                              }
+                            >
+                              <div
+                                className="w-5 h-5 rounded-full border border-border"
+                                style={{ background: overlay.color }}
+                              />
+                              <input
+                                type="color"
+                                value={overlay.color}
+                                onChange={(e) =>
+                                  setTextOverlays((prev) =>
+                                    prev.map((x) =>
+                                      x.id === overlay.id
+                                        ? { ...x, color: e.target.value }
+                                        : x,
+                                    ),
+                                  )
+                                }
+                                className="sr-only"
+                              />
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setTextOverlays((prev) =>
+                                  prev.filter((x) => x.id !== overlay.id),
+                                )
+                              }
+                              data-ocid={`mobile.overlay.text.delete_button.${i + 1}`}
+                              className="text-muted-foreground hover:text-destructive ml-2"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -3037,6 +3414,8 @@ interface StudioCompositionProps {
   logoColor: string;
   borderColor: string;
   onSlotClick: (idx: number) => void;
+  swapSlot: number | null;
+  onClearSlot: (idx: number) => void;
   onUpload: (idx: number) => void;
   onUpdateSlot: (idx: number, patch: Partial<SlotState>) => void;
   onUpdateText: (id: string, patch: Partial<TextOverlay>) => void;
@@ -3044,6 +3423,11 @@ interface StudioCompositionProps {
   onDeleteText: (id: string) => void;
   onDeleteSticker: (id: string) => void;
   addPhotoLabel: string;
+  onUpdateSlotFilmDate?: (
+    idx: number,
+    filmDate: boolean,
+    filmDateStr: string,
+  ) => void;
 }
 
 // ─── CutGuideLine component ───────────────────────────────────────────────────
@@ -3102,6 +3486,8 @@ function StudioComposition({
   logoColor,
   borderColor: _borderColor,
   onSlotClick,
+  swapSlot,
+  onClearSlot,
   onUpload,
   onUpdateSlot,
   onUpdateText,
@@ -3122,12 +3508,18 @@ function StudioComposition({
         idx={idx}
         slot={slot}
         isSelected={selectedSlot === idx}
+        isSwapSource={swapSlot === idx}
+        isSwapTarget={swapSlot !== null && swapSlot !== idx}
         w={w}
         h={h}
         onSelect={onSlotClick}
         onUpload={onUpload}
+        onClear={onClearSlot}
         addPhotoLabel={addPhotoLabel}
+        filmDate={slot.filmDate}
+        filmDateStr={slot.filmDateStr}
         onPan={(i, panX, panY) => onUpdateSlot(i, { panX, panY })}
+        onZoom={(i, zoom) => onUpdateSlot(i, { zoom })}
       />
     );
   };
@@ -3158,6 +3550,8 @@ function StudioComposition({
         background: bgPattern ?? bgColor,
         display: "inline-block",
         position: "relative",
+        outline: "1.5px solid rgba(180,180,180,0.55)",
+        outlineOffset: "0px",
       }}
     >
       {/* ── 4-cut layout: 2×2 grid */}
@@ -3410,22 +3804,34 @@ function SlotButton({
   idx,
   slot,
   isSelected,
+  isSwapSource,
+  isSwapTarget,
   w,
   h,
   onSelect,
   onUpload,
+  onClear,
   onPan,
+  onZoom,
   addPhotoLabel,
+  filmDate,
+  filmDateStr,
 }: {
   idx: number;
   slot: SlotState;
   isSelected: boolean;
+  isSwapSource: boolean;
+  isSwapTarget: boolean;
   w: number;
   h: number;
   onSelect: (idx: number) => void;
   onUpload: (idx: number) => void;
+  onClear: (idx: number) => void;
   onPan: (idx: number, panX: number, panY: number) => void;
+  onZoom: (idx: number, zoom: number) => void;
   addPhotoLabel: string;
+  filmDate?: boolean;
+  filmDateStr?: string;
 }) {
   const dragRef = useRef<{
     startX: number;
@@ -3434,6 +3840,7 @@ function SlotButton({
     originY: number;
     moved: boolean;
   } | null>(null);
+  const pinchRef = useRef<{ dist: number; zoom: number } | null>(null);
 
   const visualZoom = slot.zoom * 1.1;
   const nw = slot.naturalW || 1;
@@ -3444,114 +3851,216 @@ function SlotButton({
   const displayW = nw * coverScale * visualZoom;
   const displayH = nh * coverScale * visualZoom;
 
+  // Outline: swap source = amber, swap target hint = blue dashed, selected = gold
+  let outlineStyle: React.CSSProperties = {};
+  if (isSwapSource) {
+    outlineStyle = {
+      outline: "3px solid oklch(0.78 0.18 55)",
+      outlineOffset: "-3px",
+      boxShadow: "inset 0 0 0 3px oklch(0.78 0.18 55 / 0.3)",
+    };
+  } else if (isSwapTarget && slot.imageUrl) {
+    outlineStyle = {
+      outline: "2px dashed oklch(0.65 0.15 240)",
+      outlineOffset: "-2px",
+    };
+  } else if (isSelected) {
+    outlineStyle = {
+      outline: "2px solid oklch(0.76 0.12 75)",
+      outlineOffset: "-2px",
+    };
+  }
+
   return (
-    <button
-      type="button"
-      data-slot-index={idx}
-      data-ocid={`canvas.slot.${idx + 1}`}
-      className="relative overflow-hidden p-0 border-0"
-      style={{
-        width: w,
-        height: h,
-        flexShrink: 0,
-        outline: isSelected ? "2px solid oklch(0.76 0.12 75)" : "none",
-        outlineOffset: isSelected ? "-2px" : "0",
-        cursor: slot.imageUrl ? "grab" : "pointer",
-        background: slot.imageUrl ? "transparent" : "oklch(0.20 0.007 265)",
-        touchAction: "none",
-      }}
-      onPointerDown={(e) => {
-        e.preventDefault();
-        e.currentTarget.setPointerCapture(e.pointerId);
-        dragRef.current = {
-          startX: e.clientX,
-          startY: e.clientY,
-          originX: slot.panX,
-          originY: slot.panY,
-          moved: false,
-        };
-      }}
-      onPointerMove={(e) => {
-        const d = dragRef.current;
-        if (!d) return;
-        const dx = e.clientX - d.startX;
-        const dy = e.clientY - d.startY;
-        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) d.moved = true;
-        if (!d.moved) return;
-        onPan(idx, d.originX + dx, d.originY + dy);
-      }}
-      onPointerUp={(e) => {
-        const d = dragRef.current;
-        if (d) {
-          if (!d.moved) {
-            if (!slot.imageUrl) onUpload(idx);
-            else onSelect(idx);
+    <div style={{ position: "relative", flexShrink: 0 }}>
+      <button
+        type="button"
+        data-slot-index={idx}
+        data-ocid={`canvas.slot.${idx + 1}`}
+        className="relative overflow-hidden p-0 border-0"
+        style={{
+          width: w,
+          height: h,
+          flexShrink: 0,
+          cursor: slot.imageUrl ? "grab" : "pointer",
+          background: slot.imageUrl ? "transparent" : "oklch(0.20 0.007 265)",
+          touchAction: "none",
+          display: "block",
+          ...outlineStyle,
+        }}
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest(".slot-clear-btn")) return;
+          e.preventDefault();
+          e.currentTarget.setPointerCapture(e.pointerId);
+          dragRef.current = {
+            startX: e.clientX,
+            startY: e.clientY,
+            originX: slot.panX,
+            originY: slot.panY,
+            moved: false,
+          };
+        }}
+        onPointerMove={(e) => {
+          const d = dragRef.current;
+          if (!d) return;
+          const dx = e.clientX - d.startX;
+          const dy = e.clientY - d.startY;
+          if (Math.abs(dx) > 2 || Math.abs(dy) > 2) d.moved = true;
+          if (!d.moved) return;
+          onPan(idx, d.originX + dx, d.originY + dy);
+        }}
+        onTouchStart={(e) => {
+          if (e.touches.length === 2) {
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const dist = Math.hypot(dx, dy);
+            pinchRef.current = { dist, zoom: slot.zoom };
           }
-          dragRef.current = null;
-        }
-        e.currentTarget.releasePointerCapture(e.pointerId);
-      }}
-    >
-      {slot.imageUrl ? (
-        <img
-          src={slot.imageUrl}
-          alt={`슬롯 ${idx + 1}`}
-          draggable={false}
+        }}
+        onTouchMove={(e) => {
+          if (e.touches.length === 2 && pinchRef.current) {
+            e.preventDefault();
+            const dx = e.touches[0].clientX - e.touches[1].clientX;
+            const dy = e.touches[0].clientY - e.touches[1].clientY;
+            const dist = Math.hypot(dx, dy);
+            const scale = dist / pinchRef.current.dist;
+            const newZoom = Math.min(
+              5,
+              Math.max(0.5, pinchRef.current.zoom * scale),
+            );
+            onZoom(idx, newZoom);
+          }
+        }}
+        onTouchEnd={() => {
+          pinchRef.current = null;
+        }}
+        onPointerUp={(e) => {
+          const d = dragRef.current;
+          if (d) {
+            if (!d.moved) {
+              if (!slot.imageUrl) onUpload(idx);
+              else onSelect(idx);
+            }
+            dragRef.current = null;
+          }
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        }}
+      >
+        {slot.imageUrl ? (
+          <img
+            src={slot.imageUrl}
+            alt={`슬롯 ${idx + 1}`}
+            draggable={false}
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: "50%",
+              width: displayW,
+              height: displayH,
+              maxWidth: "none",
+              maxHeight: "none",
+              transformOrigin: "center center",
+              transform: `translate(calc(-50% + ${slot.panX}px), calc(-50% + ${slot.panY}px)) rotate(${slot.rotation}deg) scaleX(${slot.flipH ? -1 : 1}) scaleY(${slot.flipV ? -1 : 1})`,
+              imageRendering:
+                "high-quality" as React.CSSProperties["imageRendering"],
+              filter: getFilterCSS(slot.filter, slot),
+              userSelect: "none",
+              pointerEvents: "none",
+            }}
+          />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2">
+            <ImagePlus
+              className="text-muted-foreground"
+              style={{ width: Math.min(w, h) * 0.15 }}
+            />
+            <span
+              className="text-muted-foreground"
+              style={{ fontSize: Math.min(w, h) * 0.07 }}
+            >
+              {addPhotoLabel}
+            </span>
+          </div>
+        )}
+        {slot.vignette > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              pointerEvents: "none",
+              zIndex: 2,
+              background: `radial-gradient(ellipse at center, transparent ${100 - slot.vignette * 0.7}%, rgba(0,0,0,${slot.vignette * 0.008}) 100%)`,
+            }}
+          />
+        )}
+        {slot.shadow > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              inset: 0,
+              pointerEvents: "none",
+              zIndex: 3,
+              background: `linear-gradient(rgba(0,0,0,${slot.shadow * 0.003}), rgba(0,0,0,${slot.shadow * 0.003}))`,
+              mixBlendMode: "multiply",
+            }}
+          />
+        )}
+      </button>
+      {/* Film date stamp overlay */}
+      {slot.imageUrl && filmDate && filmDateStr && (
+        <div
           style={{
             position: "absolute",
-            left: "50%",
-            top: "50%",
-            width: displayW,
-            height: displayH,
-            maxWidth: "none",
-            maxHeight: "none",
-            transformOrigin: "center center",
-            transform: `translate(calc(-50% + ${slot.panX}px), calc(-50% + ${slot.panY}px)) rotate(${slot.rotation}deg) scaleX(${slot.flipH ? -1 : 1}) scaleY(${slot.flipV ? -1 : 1})`,
-            imageRendering:
-              "high-quality" as React.CSSProperties["imageRendering"],
-            filter: getFilterCSS(slot.filter, slot),
-            userSelect: "none",
+            bottom: 6,
+            right: 6,
             pointerEvents: "none",
+            zIndex: 5,
+            background: "rgba(0,0,0,0.55)",
+            borderRadius: 2,
+            padding: "2px 5px",
           }}
-        />
-      ) : (
-        <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-          <ImagePlus
-            className="text-muted-foreground"
-            style={{ width: Math.min(w, h) * 0.15 }}
-          />
+        >
           <span
-            className="text-muted-foreground"
-            style={{ fontSize: Math.min(w, h) * 0.07 }}
+            style={{
+              fontFamily: '"Courier New", Courier, monospace',
+              fontStyle: "italic",
+              fontWeight: "bold",
+              fontSize: Math.max(9, Math.min(w, h) * 0.045),
+              color: "#f97316",
+              letterSpacing: "0.05em",
+              lineHeight: 1.3,
+              textShadow: "0 1px 3px rgba(0,0,0,0.9)",
+              userSelect: "none",
+            }}
           >
-            {addPhotoLabel}
+            {filmDateStr}
           </span>
         </div>
       )}
-      {slot.vignette > 0 && (
-        <div
+      {/* X button to clear slot - hidden during print/save */}
+      {slot.imageUrl && (
+        <button
+          type="button"
+          className="slot-clear-btn no-print absolute z-20 flex items-center justify-center rounded-full bg-black/70 text-white hover:bg-black/90 transition-opacity"
           style={{
-            position: "absolute",
-            inset: 0,
-            pointerEvents: "none",
-            zIndex: 2,
-            background: `radial-gradient(ellipse at center, transparent ${100 - slot.vignette * 0.7}%, rgba(0,0,0,${slot.vignette * 0.008}) 100%)`,
+            top: 4,
+            right: 4,
+            width: 22,
+            height: 22,
+            fontSize: 14,
+            lineHeight: 1,
           }}
-        />
-      )}
-      {slot.shadow > 0 && (
-        <div
-          style={{
-            position: "absolute",
-            inset: 0,
-            pointerEvents: "none",
-            zIndex: 3,
-            background: `linear-gradient(rgba(0,0,0,${slot.shadow * 0.003}), rgba(0,0,0,${slot.shadow * 0.003}))`,
-            mixBlendMode: "multiply",
+          onClick={(e) => {
+            e.stopPropagation();
+            onClear(idx);
           }}
-        />
+          title="Remove photo"
+          aria-label="Remove photo"
+        >
+          ×
+        </button>
       )}
-    </button>
+    </div>
   );
 }
 
@@ -3734,43 +4243,93 @@ function TextOverlayItem({
 
       {/* Text content */}
       {editing ? (
-        <input
-          ref={(el) => {
-            if (el) setTimeout(() => el.focus(), 0);
-          }}
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onBlur={() => {
-            onUpdate(t.id, { text: editValue });
-            setEditing(false);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              onUpdate(t.id, { text: editValue });
-              setEditing(false);
-            }
-            e.stopPropagation();
-          }}
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
+        <div
           style={{
-            display: "inline-block",
-            fontSize: t.fontSize,
-            color: t.color,
-            fontWeight: t.bold ? "bold" : "normal",
-            fontStyle: t.italic ? "italic" : "normal",
-            textDecoration: t.underline ? "underline" : "none",
-            fontFamily: t.fontFamily || "sans-serif",
-            whiteSpace: "nowrap",
-            lineHeight: 1.2,
-            padding: "2px 4px",
-            background: "rgba(255,255,255,0.15)",
-            border: "1px dashed rgba(99,102,241,0.8)",
-            borderRadius: 2,
-            outline: "none",
-            minWidth: 40,
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+            alignItems: "flex-start",
           }}
-        />
+        >
+          <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+            <input
+              ref={(el) => {
+                if (el) setTimeout(() => el.focus(), 0);
+              }}
+              value={editValue}
+              onChange={(e) => setEditValue(e.target.value)}
+              onBlur={() => {
+                onUpdate(t.id, { text: editValue });
+                setEditing(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  onUpdate(t.id, { text: editValue });
+                  setEditing(false);
+                }
+                e.stopPropagation();
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{
+                display: "inline-block",
+                fontSize: t.fontSize,
+                color: t.color,
+                fontWeight: t.bold ? "bold" : "normal",
+                fontStyle: t.italic ? "italic" : "normal",
+                textDecoration: t.underline ? "underline" : "none",
+                fontFamily: t.fontFamily || "sans-serif",
+                whiteSpace: "nowrap",
+                lineHeight: 1.2,
+                padding: "2px 4px",
+                background: "rgba(255,255,255,0.15)",
+                border: "1px dashed rgba(99,102,241,0.8)",
+                borderRadius: 2,
+                outline: "none",
+                minWidth: 40,
+              }}
+            />
+            {/* Color picker swatch */}
+            <label
+              title="Text color"
+              onClick={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              style={{
+                position: "relative",
+                width: 20,
+                height: 20,
+                borderRadius: "50%",
+                background: t.color,
+                border: "2px solid rgba(255,255,255,0.8)",
+                boxShadow: "0 1px 3px rgba(0,0,0,0.4)",
+                cursor: "pointer",
+                flexShrink: 0,
+                display: "inline-block",
+              }}
+            >
+              <input
+                type="color"
+                value={t.color}
+                onChange={(e) => {
+                  onUpdate(t.id, { color: e.target.value });
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  opacity: 0,
+                  width: "100%",
+                  height: "100%",
+                  cursor: "pointer",
+                  border: "none",
+                  padding: 0,
+                }}
+              />
+            </label>
+          </div>
+        </div>
       ) : (
         // biome-ignore lint/a11y/useSemanticElements: text overlay click-to-edit needs inline display
         <span
