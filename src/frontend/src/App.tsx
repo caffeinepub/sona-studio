@@ -10,6 +10,13 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Drawer,
   DrawerContent,
   DrawerHeader,
@@ -49,6 +56,7 @@ import {
   Printer,
   RotateCcw,
   Save,
+  Settings,
   SlidersHorizontal,
   Smile,
   Trash2,
@@ -491,7 +499,7 @@ const translations: Record<Language, Record<string, string>> = {
     filmDateStr: "Date Text",
     // Layout change dialog
     layoutChangeTitle: "Change Layout",
-    layoutChangeDesc: "Save current layout before switching?",
+    layoutChangeDesc: "Switching layouts will reset the current layout.",
     layoutChangeSave: "Save & Switch",
     layoutChangeDontSave: "Don't Save",
     layoutChangeCancel: "Cancel",
@@ -601,7 +609,7 @@ const translations: Record<Language, Record<string, string>> = {
     filmDateStr: "날짜 텍스트",
     // Layout change dialog
     layoutChangeTitle: "레이아웃 변경",
-    layoutChangeDesc: "현재 레이아웃을 저장하시겠습니까?",
+    layoutChangeDesc: "레이아웃을 변경하면 현재 작업이 초기화됩니다.",
     layoutChangeSave: "저장 후 변경",
     layoutChangeDontSave: "저장 안함",
     layoutChangeCancel: "취소",
@@ -665,6 +673,14 @@ export default function App() {
   // ── Save name dialog
   const [saveNameDialogOpen, setSaveNameDialogOpen] = useState(false);
   const [saveNameInput, setSaveNameInput] = useState("sona-studio-project");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsPhotoPrefix, setSettingsPhotoPrefix] = useState("sona-studio");
+  const [settingsProjectPrefix, setSettingsProjectPrefix] = useState(
+    "sona-studio-project",
+  );
+  const [settingsIncludePhotos, setSettingsIncludePhotos] = useState(false);
+  const [saveDirHandle, setSaveDirHandle] =
+    useState<FileSystemDirectoryHandle | null>(null);
 
   // ── Layout change
   const handleLayoutChange = useCallback(
@@ -727,11 +743,96 @@ export default function App() {
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const readExifDate = (file: File): Promise<string> => {
+    return new Promise((resolve) => {
+      const fallback = (() => {
+        const d = new Date(file.lastModified);
+        return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
+      })();
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const buf = e.target?.result as ArrayBuffer;
+          const view = new DataView(buf);
+          if (view.getUint16(0) !== 0xffd8) {
+            resolve(fallback);
+            return;
+          }
+          let offset = 2;
+          while (offset < buf.byteLength - 1) {
+            const marker = view.getUint16(offset);
+            offset += 2;
+            if (marker === 0xffe1) {
+              const segLen = view.getUint16(offset);
+              const exifStart = offset + 2;
+              if (
+                view.getUint32(exifStart) === 0x45786966 &&
+                view.getUint16(exifStart + 4) === 0x0000
+              ) {
+                const tiffStart = exifStart + 6;
+                const littleEndian = view.getUint16(tiffStart) === 0x4949;
+                const getU16 = (o: number) =>
+                  littleEndian
+                    ? view.getUint16(tiffStart + o, true)
+                    : view.getUint16(tiffStart + o, false);
+                const getU32 = (o: number) =>
+                  littleEndian
+                    ? view.getUint32(tiffStart + o, true)
+                    : view.getUint32(tiffStart + o, false);
+                const ifd0Offset = getU32(4);
+                const entryCount = getU16(ifd0Offset);
+                let exifIfdOffset = -1;
+                for (let i = 0; i < entryCount; i++) {
+                  const entryOffset = ifd0Offset + 2 + i * 12;
+                  const tag = getU16(entryOffset);
+                  if (tag === 0x8769) {
+                    exifIfdOffset = getU32(entryOffset + 8);
+                    break;
+                  }
+                }
+                if (exifIfdOffset !== -1) {
+                  const subCount = getU16(exifIfdOffset);
+                  for (let i = 0; i < subCount; i++) {
+                    const entryOffset = exifIfdOffset + 2 + i * 12;
+                    const tag = getU16(entryOffset);
+                    if (tag === 0x9003 || tag === 0x0132) {
+                      const valueOffset = getU32(entryOffset + 8);
+                      let str = "";
+                      for (let c = 0; c < 19; c++) {
+                        const ch = view.getUint8(tiffStart + valueOffset + c);
+                        if (ch === 0) break;
+                        str += String.fromCharCode(ch);
+                      }
+                      const m = str.match(/^(\d{4}):(\d{2}):(\d{2})/);
+                      if (m) {
+                        resolve(`${m[1]}.${m[2]}.${m[3]}`);
+                        return;
+                      }
+                    }
+                  }
+                }
+              }
+              offset += segLen;
+              continue;
+            }
+            if (marker === 0xffda) break;
+            if ((marker & 0xff00) !== 0xff00) break;
+            offset += view.getUint16(offset);
+          }
+        } catch (_) {}
+        resolve(fallback);
+      };
+      reader.onerror = () => resolve(fallback);
+      reader.readAsArrayBuffer(file.slice(0, 65536));
+    });
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || pendingSlotRef.current === null) return;
     const url = URL.createObjectURL(file);
     const idx = pendingSlotRef.current;
+    const exifDate = await readExifDate(file);
     const img = new Image();
     img.onload = () => {
       updateSlot(idx, {
@@ -742,10 +843,7 @@ export default function App() {
         rotation: 0,
         naturalW: img.naturalWidth,
         naturalH: img.naturalHeight,
-        filmDateStr: (() => {
-          const d = new Date(file.lastModified);
-          return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, "0")}.${String(d.getDate()).padStart(2, "0")}`;
-        })(),
+        filmDateStr: exifDate,
       });
       setSelectedSlot(idx);
     };
@@ -801,8 +899,29 @@ export default function App() {
   // ── Project save/load
   const projectLoadRef = useRef<HTMLInputElement>(null);
 
-  const confirmProjectSave = (customName?: string) => {
-    const name = customName ?? saveNameInput ?? "sona-studio-project";
+  const confirmProjectSave = async (customName?: string) => {
+    const name = customName ?? saveNameInput ?? settingsProjectPrefix;
+
+    const processedSlots = await Promise.all(
+      slots.map(async (s) => {
+        if (settingsIncludePhotos && s.imageUrl) {
+          try {
+            const resp = await fetch(s.imageUrl);
+            const blobData = await resp.blob();
+            const b64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = () => resolve(reader.result as string);
+              reader.readAsDataURL(blobData);
+            });
+            return { ...s, imageUrl: b64 };
+          } catch {
+            return { ...s, imageUrl: null };
+          }
+        }
+        return { ...s, imageUrl: null };
+      }),
+    );
+
     const projectData = {
       layout,
       borderColor,
@@ -817,23 +936,45 @@ export default function App() {
       logoEnabled,
       logoPosition,
       logoColor,
-      slots: slots.map((s) => ({ ...s, imageUrl: null })),
+      slots: processedSlots,
     };
     const blob = new Blob([JSON.stringify(projectData, null, 2)], {
       type: "application/json",
     });
+
+    if (saveDirHandle) {
+      try {
+        const fileHandle = await saveDirHandle.getFileHandle(`${name}.json`, {
+          create: true,
+        });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        setSaveNameDialogOpen(false);
+        toast.success(t("toastProjectSaved"));
+        return;
+      } catch (e: any) {
+        if (e.name !== "AbortError") {
+          // fall through to default download
+        } else {
+          return;
+        }
+      }
+    }
+    // default: anchor download
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
     a.download = `${name}.json`;
     a.click();
     URL.revokeObjectURL(url);
+
     setSaveNameDialogOpen(false);
     toast.success(t("toastProjectSaved"));
   };
 
   const handleProjectSave = () => {
-    setSaveNameInput("sona-studio-project");
+    setSaveNameInput(settingsProjectPrefix);
     setSaveNameDialogOpen(true);
   };
 
@@ -850,7 +991,7 @@ export default function App() {
             data.slots.map((s: SlotState) => ({
               ...defaultSlot(),
               ...s,
-              imageUrl: null,
+              imageUrl: s.imageUrl?.startsWith("data:") ? s.imageUrl : null,
             })),
           );
         if (data.borderColor) setBorderColor(data.borderColor);
@@ -875,7 +1016,25 @@ export default function App() {
   };
 
   // ── Export canvas
-  const handleExport = async () => {
+  const handleExport = () => {
+    // 1. Clear slot selection state
+    setSwapSlot(null);
+    setSelectedSlot(null);
+    // 2. Blur any focused element (e.g. a photo slot button in WebView)
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+    // 3. Focus the composition frame itself so the whole frame is the active target
+    if (compositionRef.current) {
+      compositionRef.current.focus();
+    }
+    // 4. Use setTimeout (150ms) for reliable re-render in WebView/APK environments
+    setTimeout(() => {
+      runExport();
+    }, 150);
+  };
+
+  const runExport = async () => {
     const comp = compositionRef.current;
     if (!comp) return;
     const toastId = toast.loading(t("toastSaving"));
@@ -1100,23 +1259,16 @@ export default function App() {
             if (slot.filmDate && slot.filmDateStr) {
               ctx.save();
               const dateText = slot.filmDateStr;
-              const dateFontSize = Math.max(9, h * 0.045);
+              const dateFontSize = Math.max(8, h * 0.038);
               ctx.font = `italic bold ${dateFontSize}px "Courier New", monospace`;
               const dtw = ctx.measureText(dateText).width;
               const padX = 6;
-              const padY = 4;
+              const padY = 5;
               const dateX = x + w - dtw - padX * 2;
               const dateY = y + h - padY * 2;
-              ctx.fillStyle = "rgba(0,0,0,0.55)";
-              ctx.fillRect(
-                dateX - padX,
-                dateY - dateFontSize,
-                dtw + padX * 2,
-                dateFontSize + padY,
-              );
-              ctx.fillStyle = "#f97316";
-              ctx.shadowColor = "rgba(0,0,0,0.8)";
-              ctx.shadowBlur = 2;
+              ctx.shadowColor = "transparent";
+              ctx.shadowBlur = 0;
+              ctx.fillStyle = "rgba(253,232,200,0.85)";
               ctx.fillText(dateText, dateX, dateY);
               ctx.restore();
             }
@@ -1323,21 +1475,38 @@ export default function App() {
         ctx.restore();
       }
 
-      canvas.toBlob(
-        (blob) => {
-          if (!blob) return;
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.download = `sona-studio-${Date.now()}.jpg`;
-          a.href = url;
-          a.click();
-          URL.revokeObjectURL(url);
+      const exportBlob = await new Promise<Blob>((res) =>
+        canvas.toBlob((b) => res(b!), "image/jpeg", 0.97),
+      );
+      const filename = `${settingsPhotoPrefix}-${Date.now()}.jpg`;
+
+      if (saveDirHandle) {
+        try {
+          const fileHandle = await saveDirHandle.getFileHandle(filename, {
+            create: true,
+          });
+          const writable = await fileHandle.createWritable();
+          await writable.write(exportBlob);
+          await writable.close();
           toast.dismiss(toastId);
           toast.success(t("toastSaved"));
-        },
-        "image/jpeg",
-        0.97,
-      );
+          return;
+        } catch (e: any) {
+          if (e.name === "AbortError") {
+            toast.dismiss(toastId);
+            return;
+          }
+          // fall through to default download
+        }
+      }
+      const exportUrl = URL.createObjectURL(exportBlob);
+      const exportA = document.createElement("a");
+      exportA.href = exportUrl;
+      exportA.download = filename;
+      exportA.click();
+      URL.revokeObjectURL(exportUrl);
+      toast.dismiss(toastId);
+      toast.success(t("toastSaved"));
     } catch {
       toast.dismiss(toastId);
       toast.error(t("toastSaveError"));
@@ -1433,20 +1602,148 @@ export default function App() {
             >
               {language === "ko" ? "사진 저장 후 변경" : "Save Photo & Switch"}
             </AlertDialogAction>
-            <AlertDialogAction
-              onClick={() => {
-                confirmProjectSave();
-                if (pendingLayout) applyLayoutSwitch(pendingLayout);
-              }}
-              data-ocid="layout.confirm_button"
-              className="bg-primary text-primary-foreground hover:opacity-90"
-            >
-              {t("layoutChangeSave")}
-            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* Settings Dialog */}
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-md" data-ocid="settings.dialog">
+          <DialogHeader>
+            <DialogTitle>{language === "ko" ? "설정" : "Settings"}</DialogTitle>
+            <DialogDescription>
+              {language === "ko"
+                ? "저장 옵션을 설정하세요."
+                : "Configure save options."}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-5 py-2">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">
+                {language === "ko"
+                  ? "사진 저장 파일명 접두사"
+                  : "Photo Filename Prefix"}
+              </Label>
+              <Input
+                value={settingsPhotoPrefix}
+                onChange={(e) => setSettingsPhotoPrefix(e.target.value)}
+                placeholder="sona-studio"
+                data-ocid="settings.photo_prefix.input"
+              />
+              <p className="text-xs text-muted-foreground">
+                {language === "ko"
+                  ? `저장 파일명: ${settingsPhotoPrefix}-[타임스탬프].jpg`
+                  : `Saves as: ${settingsPhotoPrefix}-[timestamp].jpg`}
+              </p>
+            </div>
+            <Separator />
+            <div className="space-y-2">
+              <Label className="text-sm font-medium">
+                {language === "ko"
+                  ? "프로젝트 저장 파일명 접두사"
+                  : "Project Filename Prefix"}
+              </Label>
+              <Input
+                value={settingsProjectPrefix}
+                onChange={(e) => setSettingsProjectPrefix(e.target.value)}
+                placeholder="sona-studio-project"
+                data-ocid="settings.project_prefix.input"
+              />
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-sm font-medium">
+                  {language === "ko"
+                    ? "프로젝트에 사진 포함"
+                    : "Include Photos in Project"}
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {language === "ko"
+                    ? "프로젝트 저장 시 프레임 안 사진도 함께 저장합니다. 파일 크기가 커질 수 있습니다."
+                    : "Embeds frame photos in the project file. File size may increase significantly."}
+                </p>
+              </div>
+              <Switch
+                checked={settingsIncludePhotos}
+                onCheckedChange={setSettingsIncludePhotos}
+                data-ocid="settings.include_photos.switch"
+              />
+            </div>
+            <Separator />
+            {"showDirectoryPicker" in window ? (
+              <div className="space-y-2">
+                <div>
+                  <Label className="text-sm font-medium">
+                    {language === "ko" ? "저장 폴더 지정" : "Set Save Folder"}
+                  </Label>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {language === "ko"
+                      ? "한 번 설정하면 이후 저장이 모두 해당 폴더로 자동 저장됩니다."
+                      : "Set once, and all saves automatically go to that folder."}
+                  </p>
+                </div>
+                {saveDirHandle ? (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs bg-muted px-2 py-1 rounded-md font-mono border border-border">
+                      📁 {saveDirHandle.name}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      data-ocid="settings.change_folder.button"
+                      onClick={async () => {
+                        try {
+                          const handle = await (
+                            window as any
+                          ).showDirectoryPicker();
+                          setSaveDirHandle(handle);
+                        } catch (e: any) {
+                          if (e.name !== "AbortError") console.error(e);
+                        }
+                      }}
+                    >
+                      {language === "ko" ? "변경" : "Change"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      data-ocid="settings.clear_folder.button"
+                      onClick={() => setSaveDirHandle(null)}
+                    >
+                      {language === "ko" ? "해제" : "Clear"}
+                    </Button>
+                  </div>
+                ) : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    data-ocid="settings.select_folder.button"
+                    onClick={async () => {
+                      try {
+                        const handle = await (
+                          window as any
+                        ).showDirectoryPicker();
+                        setSaveDirHandle(handle);
+                      } catch (e: any) {
+                        if (e.name !== "AbortError") console.error(e);
+                      }
+                    }}
+                  >
+                    {language === "ko" ? "폴더 선택" : "Select Folder"}
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                {language === "ko"
+                  ? "이 브라우저는 폴더 지정을 지원하지 않습니다."
+                  : "Your browser does not support folder selection."}
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
       <input
         ref={fileInputRef}
         type="file"
@@ -1495,6 +1792,15 @@ export default function App() {
               className="px-2.5 py-1 rounded-full border border-border text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-all tracking-wider"
             >
               {t("langToggle")}
+            </button>
+            <button
+              type="button"
+              data-ocid="header.settings_button"
+              onClick={() => setSettingsOpen(true)}
+              className="p-1.5 rounded-full border border-border text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+              title={language === "ko" ? "설정" : "Settings"}
+            >
+              <Settings className="w-4 h-4" />
             </button>
             <Button
               variant="outline"
@@ -3888,6 +4194,7 @@ function SlotButton({
           display: "block",
           ...outlineStyle,
         }}
+        onContextMenu={(e) => e.preventDefault()}
         onPointerDown={(e) => {
           if ((e.target as HTMLElement).closest(".slot-clear-btn")) return;
           e.preventDefault();
@@ -3951,22 +4258,25 @@ function SlotButton({
             src={slot.imageUrl}
             alt={`슬롯 ${idx + 1}`}
             draggable={false}
-            style={{
-              position: "absolute",
-              left: "50%",
-              top: "50%",
-              width: displayW,
-              height: displayH,
-              maxWidth: "none",
-              maxHeight: "none",
-              transformOrigin: "center center",
-              transform: `translate(calc(-50% + ${slot.panX}px), calc(-50% + ${slot.panY}px)) rotate(${slot.rotation}deg) scaleX(${slot.flipH ? -1 : 1}) scaleY(${slot.flipV ? -1 : 1})`,
-              imageRendering:
-                "high-quality" as React.CSSProperties["imageRendering"],
-              filter: getFilterCSS(slot.filter, slot),
-              userSelect: "none",
-              pointerEvents: "none",
-            }}
+            style={
+              {
+                position: "absolute",
+                left: "50%",
+                top: "50%",
+                width: displayW,
+                height: displayH,
+                maxWidth: "none",
+                maxHeight: "none",
+                transformOrigin: "center center",
+                transform: `translate(calc(-50% + ${slot.panX}px), calc(-50% + ${slot.panY}px)) rotate(${slot.rotation}deg) scaleX(${slot.flipH ? -1 : 1}) scaleY(${slot.flipV ? -1 : 1})`,
+                imageRendering:
+                  "high-quality" as React.CSSProperties["imageRendering"],
+                filter: getFilterCSS(slot.filter, slot),
+                userSelect: "none",
+                pointerEvents: "none",
+                WebkitTouchCallout: "none",
+              } as React.CSSProperties
+            }
           />
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center gap-2">
@@ -4015,9 +4325,6 @@ function SlotButton({
             right: 6,
             pointerEvents: "none",
             zIndex: 5,
-            background: "rgba(0,0,0,0.55)",
-            borderRadius: 2,
-            padding: "2px 5px",
           }}
         >
           <span
@@ -4025,11 +4332,10 @@ function SlotButton({
               fontFamily: '"Courier New", Courier, monospace',
               fontStyle: "italic",
               fontWeight: "bold",
-              fontSize: Math.max(9, Math.min(w, h) * 0.045),
-              color: "#f97316",
+              fontSize: Math.max(8, Math.min(w, h) * 0.038),
+              color: "rgba(253,232,200,0.85)",
               letterSpacing: "0.05em",
               lineHeight: 1.3,
-              textShadow: "0 1px 3px rgba(0,0,0,0.9)",
               userSelect: "none",
             }}
           >

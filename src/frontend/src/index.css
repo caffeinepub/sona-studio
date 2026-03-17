@@ -1,0 +1,139 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@font-face {
+  font-family: "Playfair Display";
+  src: url("/assets/fonts/PlayfairDisplay.woff2") format("woff2");
+  font-weight: 400 800;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Plus Jakarta Sans";
+  src: url("/assets/fonts/PlusJakartaSans.woff2") format("woff2");
+  font-weight: 300 700;
+  font-display: swap;
+}
+
+@layer base {
+  :root {
+    --radius: 0.375rem;
+
+    /* Dark studio aesthetic — charcoal + warm gold */
+    --background: 0.11 0.006 265;
+    --foreground: 0.93 0.01 75;
+
+    --card: 0.15 0.007 265;
+    --card-foreground: 0.93 0.01 75;
+
+    --popover: 0.18 0.007 265;
+    --popover-foreground: 0.93 0.01 75;
+
+    --primary: 0.76 0.12 75;
+    --primary-foreground: 0.11 0.006 265;
+
+    --secondary: 0.2 0.007 265;
+    --secondary-foreground: 0.93 0.01 75;
+
+    --muted: 0.18 0.005 265;
+    --muted-foreground: 0.6 0.008 265;
+
+    --accent: 0.22 0.01 265;
+    --accent-foreground: 0.93 0.01 75;
+
+    --destructive: 0.6 0.22 25;
+    --destructive-foreground: 0.98 0 0;
+
+    --border: 0.25 0.008 265;
+    --input: 0.22 0.008 265;
+    --ring: 0.76 0.12 75;
+
+    --chart-1: 0.76 0.12 75;
+    --chart-2: 0.6 0.1 180;
+    --chart-3: 0.5 0.08 240;
+    --chart-4: 0.7 0.15 30;
+    --chart-5: 0.65 0.12 320;
+
+    --sidebar: 0.13 0.007 265;
+    --sidebar-foreground: 0.93 0.01 75;
+    --sidebar-primary: 0.76 0.12 75;
+    --sidebar-primary-foreground: 0.11 0.006 265;
+    --sidebar-accent: 0.2 0.008 265;
+    --sidebar-accent-foreground: 0.93 0.01 75;
+    --sidebar-border: 0.22 0.008 265;
+    --sidebar-ring: 0.76 0.12 75;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Plus Jakarta Sans", sans-serif;
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: oklch(var(--background));
+}
+::-webkit-scrollbar-thumb {
+  background: oklch(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: oklch(var(--muted-foreground));
+}
+
+/* Studio canvas shadow */
+.studio-composition {
+  box-shadow: 0 0 0 1px oklch(var(--border)), 0 8px 32px -4px rgba(0, 0, 0, 0.6),
+    0 2px 8px -2px rgba(0, 0, 0, 0.4);
+}
+
+/* Drag cursor helpers */
+.slot-dragging {
+  cursor: grabbing !important;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: white;
+  }
+  .studio-composition {
+    box-shadow: none;
+    print-color-adjust: exact !important;
+    -webkit-print-color-adjust: exact !important;
+  }
+}
+
+/* Force single page print */
+@page {
+  size: auto;
+  margin: 0;
+}
+
+@media print {
+  html,
+  body {
+    height: 100%;
+    overflow: hidden !important;
+  }
+  body > * {
+    overflow: hidden !important;
+  }
+  .studio-composition {
+    break-after: avoid !important;
+    page-break-after: avoid !important;
+  }
+}
