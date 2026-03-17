@@ -65,7 +65,7 @@ import {
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "motion/react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -665,6 +665,7 @@ export default function App() {
   const compositionRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingSlotRef = useRef<number | null>(null);
+  const pendingExportRef = useRef<boolean>(false);
 
   // ── Layout change dialog
   const [pendingLayout, setPendingLayout] = useState<LayoutType | null>(null);
@@ -1016,22 +1017,24 @@ export default function App() {
   };
 
   // ── Export canvas
-  const handleExport = () => {
-    // 1. Clear slot selection state
-    setSwapSlot(null);
-    setSelectedSlot(null);
-    // 2. Blur any focused element (e.g. a photo slot button in WebView)
+  // ── useEffect: trigger export AFTER React has re-rendered with cleared selection
+  useEffect(() => {
+    if (!pendingExportRef.current) return;
+    if (selectedSlot !== null || swapSlot !== null) return; // wait until cleared
+    pendingExportRef.current = false;
+    // Blur focused element (important for Android WebView)
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
-    // 3. Focus the composition frame itself so the whole frame is the active target
-    if (compositionRef.current) {
-      compositionRef.current.focus();
-    }
-    // 4. Use setTimeout (150ms) for reliable re-render in WebView/APK environments
-    setTimeout(() => {
-      runExport();
-    }, 150);
+    runExport();
+  });
+
+  const handleExport = () => {
+    // Set ref flag + clear selection state.
+    // useEffect above will fire after React commits the cleared state to DOM.
+    pendingExportRef.current = true;
+    setSwapSlot(null);
+    setSelectedSlot(null);
   };
 
   const runExport = async () => {
@@ -1735,11 +1738,18 @@ export default function App() {
                 )}
               </div>
             ) : (
-              <p className="text-xs text-muted-foreground">
-                {language === "ko"
-                  ? "이 브라우저는 폴더 지정을 지원하지 않습니다."
-                  : "Your browser does not support folder selection."}
-              </p>
+              <div className="rounded-md bg-muted/50 border border-border p-3 space-y-1">
+                <p className="text-xs font-medium text-foreground">
+                  {language === "ko"
+                    ? "저장 폴더 지정 불가"
+                    : "Folder Selection Unavailable"}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {language === "ko"
+                    ? "APK(앱) 또는 Safari 환경에서는 저장 폴더를 지정할 수 없습니다. 사진은 기기 기본 다운로드 폴더에 저장됩니다. Chrome/Edge 데스크탑 브라우저에서만 지원됩니다."
+                    : "Folder selection is not available in APK (app) or Safari environments. Photos will be saved to the default Downloads folder. Supported only in Chrome/Edge on desktop."}
+                </p>
+              </div>
             )}
           </div>
         </DialogContent>
