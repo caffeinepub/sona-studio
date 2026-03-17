@@ -665,7 +665,6 @@ export default function App() {
   const compositionRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pendingSlotRef = useRef<number | null>(null);
-  const pendingExportRef = useRef<boolean>(false);
 
   // ── Layout change dialog
   const [pendingLayout, setPendingLayout] = useState<LayoutType | null>(null);
@@ -1017,24 +1016,17 @@ export default function App() {
   };
 
   // ── Export canvas
-  // ── useEffect: trigger export AFTER React has re-rendered with cleared selection
-  useEffect(() => {
-    if (!pendingExportRef.current) return;
-    if (selectedSlot !== null || swapSlot !== null) return; // wait until cleared
-    pendingExportRef.current = false;
-    // Blur focused element (important for Android WebView)
+  // Call runExport directly — canvas rendering reads from slots[] state, not DOM selection,
+  // so we don't need to wait for React to re-render before capturing.
+  const handleExport = () => {
+    // Clear selection visuals immediately (no need to wait)
+    setSwapSlot(null);
+    setSelectedSlot(null);
     if (document.activeElement instanceof HTMLElement) {
       document.activeElement.blur();
     }
+    // Run export right away — Android WebView requires staying close to the user gesture
     runExport();
-  });
-
-  const handleExport = () => {
-    // Set ref flag + clear selection state.
-    // useEffect above will fire after React commits the cleared state to DOM.
-    pendingExportRef.current = true;
-    setSwapSlot(null);
-    setSelectedSlot(null);
   };
 
   const runExport = async () => {
@@ -1047,7 +1039,10 @@ export default function App() {
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(compRect.width * scale);
       canvas.height = Math.round(compRect.height * scale);
-      const ctx = canvas.getContext("2d", { alpha: false })!;
+      const ctx = canvas.getContext("2d", {
+        alpha: false,
+        willReadFrequently: false,
+      })!;
       ctx.imageSmoothingEnabled = true;
       ctx.imageSmoothingQuality = "high";
       ctx.scale(scale, scale);
@@ -1240,7 +1235,7 @@ export default function App() {
 
             const imgAr = img.naturalWidth / img.naturalHeight;
             const slotAr = w / h;
-            const visualZoom = slot.zoom * 1.1;
+            const visualZoom = slot.zoom;
             const coverScale =
               imgAr > slotAr ? h / img.naturalHeight : w / img.naturalWidth;
             const drawW = img.naturalWidth * coverScale * visualZoom;
@@ -1478,13 +1473,16 @@ export default function App() {
         ctx.restore();
       }
 
-      const exportBlob = await new Promise<Blob>((res) =>
-        canvas.toBlob((b) => res(b!), "image/jpeg", 0.97),
-      );
+      // Use synchronous toDataURL to stay within the user gesture chain on Android WebView.
+      // toDataURL and toBlob produce identical quality at the same JPEG quality setting.
+      const exportDataUrl = canvas.toDataURL("image/jpeg", 1.0);
       const filename = `${settingsPhotoPrefix}-${Date.now()}.jpg`;
 
       if (saveDirHandle) {
         try {
+          // Convert dataURL to Blob for File System Access API
+          const res = await fetch(exportDataUrl);
+          const exportBlob = await res.blob();
           const fileHandle = await saveDirHandle.getFileHandle(filename, {
             create: true,
           });
@@ -1502,12 +1500,16 @@ export default function App() {
           // fall through to default download
         }
       }
-      const exportUrl = URL.createObjectURL(exportBlob);
+      // Use anchor download with dataURL — stays synchronous and within user gesture on Android WebView
       const exportA = document.createElement("a");
-      exportA.href = exportUrl;
+      exportA.href = exportDataUrl;
       exportA.download = filename;
+      exportA.style.display = "none";
+      document.body.appendChild(exportA);
       exportA.click();
-      URL.revokeObjectURL(exportUrl);
+      setTimeout(() => {
+        document.body.removeChild(exportA);
+      }, 1000);
       toast.dismiss(toastId);
       toast.success(t("toastSaved"));
     } catch {
@@ -4279,8 +4281,6 @@ function SlotButton({
                 maxHeight: "none",
                 transformOrigin: "center center",
                 transform: `translate(calc(-50% + ${slot.panX}px), calc(-50% + ${slot.panY}px)) rotate(${slot.rotation}deg) scaleX(${slot.flipH ? -1 : 1}) scaleY(${slot.flipV ? -1 : 1})`,
-                imageRendering:
-                  "high-quality" as React.CSSProperties["imageRendering"],
                 filter: getFilterCSS(slot.filter, slot),
                 userSelect: "none",
                 pointerEvents: "none",
