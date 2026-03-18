@@ -1035,7 +1035,24 @@ export default function App() {
     const toastId = toast.loading(t("toastSaving"));
     try {
       const compRect = comp.getBoundingClientRect();
-      const scale = Math.max(3, 2480 / compRect.width);
+
+      // Compute viewScale: the CSS transform:scale applied to the composition wrapper
+      // causes getBoundingClientRect() to return visually-scaled coordinates.
+      // Logos and cutting guides use hardcoded CSS-space constants that must be scaled by vs.
+      let naturalW: number;
+      if (layout === "4r") {
+        naturalW = SLOT_W_4R + borderWidth * 2;
+      } else if (layout === "combo") {
+        naturalW = SLOT_W_4R * 2 + borderWidth * 3;
+      } else {
+        naturalW = SLOT_W_4CUT * 2 + borderWidth * 3;
+      }
+      const vs = compRect.width / naturalW; // viewScale factor
+
+      const scale = Math.max(
+        5,
+        Math.max(2480 / compRect.width, 3508 / compRect.height),
+      );
       const canvas = document.createElement("canvas");
       canvas.width = Math.round(compRect.width * scale);
       canvas.height = Math.round(compRect.height * scale);
@@ -1228,22 +1245,36 @@ export default function App() {
         const p = new Promise<void>((resolve) => {
           const img = new Image();
           img.onload = () => {
-            ctx.save();
-            ctx.beginPath();
-            ctx.rect(x, y, w, h);
-            ctx.clip();
+            // Canvas-pixel slot coordinates (exact position on the output canvas)
+            const cx = x * scale;
+            const cy = y * scale;
+            const cw = w * scale;
+            const ch = h * scale;
 
             const imgAr = img.naturalWidth / img.naturalHeight;
-            const slotAr = w / h;
+            const slotAr = cw / ch;
             const visualZoom = slot.zoom;
+
+            // coverScale in canvas-pixel space → uses more of the original image
             const coverScale =
-              imgAr > slotAr ? h / img.naturalHeight : w / img.naturalWidth;
+              imgAr > slotAr ? ch / img.naturalHeight : cw / img.naturalWidth;
             const drawW = img.naturalWidth * coverScale * visualZoom;
             const drawH = img.naturalHeight * coverScale * visualZoom;
 
-            const cx = x + w / 2 + slot.panX;
-            const cy = y + h / 2 + slot.panY;
-            ctx.translate(cx, cy);
+            // Reset transform to work directly in canvas pixel space
+            ctx.save();
+            ctx.setTransform(1, 0, 0, 1, 0, 0); // reset scale
+
+            ctx.beginPath();
+            ctx.rect(cx, cy, cw, ch);
+            ctx.clip();
+
+            const panXScaled = slot.panX * scale;
+            const panYScaled = slot.panY * scale;
+            const centerX = cx + cw / 2 + panXScaled;
+            const centerY = cy + ch / 2 + panYScaled;
+
+            ctx.translate(centerX, centerY);
             ctx.scale(slot.flipH ? -1 : 1, slot.flipV ? -1 : 1);
             ctx.rotate((slot.rotation * Math.PI) / 180);
 
@@ -1253,17 +1284,18 @@ export default function App() {
             ctx.filter = "none";
             ctx.restore();
 
-            // Film date stamp overlay
+            // Film date stamp — also in canvas-pixel space
             if (slot.filmDate && slot.filmDateStr) {
               ctx.save();
+              ctx.setTransform(1, 0, 0, 1, 0, 0);
               const dateText = slot.filmDateStr;
-              const dateFontSize = Math.max(8, h * 0.038);
+              const dateFontSize = Math.max(8, ch * 0.038);
               ctx.font = `italic bold ${dateFontSize}px "Courier New", monospace`;
               const dtw = ctx.measureText(dateText).width;
-              const padX = 6;
-              const padY = 5;
-              const dateX = x + w - dtw - padX * 2;
-              const dateY = y + h - padY * 2;
+              const padX = 6 * scale;
+              const padY = 5 * scale;
+              const dateX = cx + cw - dtw - padX;
+              const dateY = cy + ch - padY;
               ctx.shadowColor = "transparent";
               ctx.shadowBlur = 0;
               ctx.fillStyle = "rgba(253,232,200,0.85)";
@@ -1274,6 +1306,7 @@ export default function App() {
             resolve();
           };
           img.onerror = () => resolve();
+          img.crossOrigin = "anonymous";
           img.src = slot.imageUrl!;
         });
         drawPromises.push(p);
@@ -1345,60 +1378,64 @@ export default function App() {
         ctx.save();
         const logoText = "SONA STUDIO";
         if (layout === "4r" || layout === "combo") {
-          ctx.font = "700 11px 'Plus Jakarta Sans', sans-serif";
+          const vLogoArea = LOGO_AREA_4R * vs;
+          const vBW = borderWidth * vs;
+          const vSlotH = SLOT_H_4R * vs;
+          const vSlotW = SLOT_W_4R * vs;
+          const vFontSize = 11 * vs;
+          ctx.font = `700 ${vFontSize}px 'Plus Jakarta Sans', sans-serif`;
           ctx.fillStyle = logoColor;
           const lw = ctx.measureText(logoText).width;
           if (layout === "4r") {
-            const logoFontSize = 11;
             // Top logo area center
             ctx.fillText(
               logoText,
               (compRect.width - lw) / 2,
-              LOGO_AREA_4R / 2 + logoFontSize / 2,
+              vLogoArea / 2 + vFontSize / 2,
             );
             // Bottom logo area center
             const bottomLogoY =
-              LOGO_AREA_4R +
-              borderWidth +
-              SLOT_H_4R +
-              borderWidth +
-              SLOT_H_4R +
-              borderWidth +
-              LOGO_AREA_4R / 2 +
-              logoFontSize / 2;
+              vLogoArea +
+              vBW +
+              vSlotH +
+              vBW +
+              vSlotH +
+              vBW +
+              vLogoArea / 2 +
+              vFontSize / 2;
             ctx.fillText(logoText, (compRect.width - lw) / 2, bottomLogoY);
           } else {
             // combo: bottom logo area
-            const comboW = SLOT_W_4R * 2 + borderWidth * 3;
-            const smallW = Math.floor((comboW - borderWidth * 5) / 4);
-            const smallH = Math.floor(smallW * 1.4);
-            const logoFontSize = 11;
+            const comboW_v = vSlotW * 2 + vBW * 3;
+            const smallW_v = Math.floor((comboW_v - vBW * 5) / 4);
+            const smallH_v = Math.floor(smallW_v * 1.4);
             const bottomLogoY =
-              borderWidth +
-              SLOT_H_4R +
-              borderWidth * 2 +
-              smallH +
-              borderWidth +
-              LOGO_AREA_4R / 2 +
-              logoFontSize / 2;
+              vBW +
+              vSlotH +
+              vBW * 2 +
+              smallH_v +
+              vBW +
+              vLogoArea / 2 +
+              vFontSize / 2;
             ctx.fillText(logoText, (compRect.width - lw) / 2, bottomLogoY);
           }
         } else {
           // 4cut: use logoPosition
-          ctx.font = "700 9px sans-serif";
+          const vFontSize4cut = 9 * vs;
+          ctx.font = `700 ${vFontSize4cut}px 'Plus Jakarta Sans', sans-serif`;
           ctx.fillStyle = logoColor;
           const lw = ctx.measureText(logoText).width;
-          const pad2 = 8;
+          const pad2 = 8 * vs;
           let lx = 0;
           let ly = 0;
           switch (logoPosition) {
             case "top-left":
               lx = pad2;
-              ly = 12 + pad2;
+              ly = 12 * vs + pad2;
               break;
             case "top-right":
               lx = compRect.width - lw - pad2;
-              ly = 12 + pad2;
+              ly = 12 * vs + pad2;
               break;
             case "bottom-left":
               lx = pad2;
@@ -1424,21 +1461,19 @@ export default function App() {
         ctx.setLineDash([4, 4]);
         ctx.strokeStyle = "rgba(60,60,60,0.45)";
         ctx.lineWidth = 1.5 / scale;
-        const guideW = SLOT_W_4R + borderWidth * 2;
+        const vLogoArea_g = LOGO_AREA_4R * vs;
+        const vBW_g = borderWidth * vs;
+        const vSlotH_g = SLOT_H_4R * vs;
+        const guideW_g = compRect.width;
         const guides = [
-          LOGO_AREA_4R + borderWidth / 2,
-          LOGO_AREA_4R + borderWidth + SLOT_H_4R + borderWidth / 2,
-          LOGO_AREA_4R +
-            borderWidth +
-            SLOT_H_4R +
-            borderWidth +
-            SLOT_H_4R +
-            borderWidth / 2,
+          vLogoArea_g + vBW_g / 2,
+          vLogoArea_g + vBW_g + vSlotH_g + vBW_g / 2,
+          vLogoArea_g + vBW_g + vSlotH_g + vBW_g + vSlotH_g + vBW_g / 2,
         ];
         for (const gy of guides) {
           ctx.beginPath();
           ctx.moveTo(0, gy);
-          ctx.lineTo(guideW, gy);
+          ctx.lineTo(guideW_g, gy);
           ctx.stroke();
         }
         ctx.restore();
@@ -1447,28 +1482,30 @@ export default function App() {
         ctx.setLineDash([4, 4]);
         ctx.strokeStyle = "rgba(60,60,60,0.45)";
         ctx.lineWidth = 1.5 / scale;
-        const comboW = SLOT_W_4R * 2 + borderWidth * 3;
-        const smallW = Math.floor((comboW - borderWidth * 5) / 4);
-        const smallH = Math.floor(smallW * 1.4);
+        const vBW_c = borderWidth * vs;
+        const vSlotH_c = SLOT_H_4R * vs;
+        const vSlotW_c = SLOT_W_4R * vs;
+        const comboW_c = vSlotW_c * 2 + vBW_c * 3;
+        const smallW_c = Math.floor((comboW_c - vBW_c * 5) / 4);
+        const smallH_c = Math.floor(smallW_c * 1.4);
         // Vertical guide between two 4R photos
-        const vertX = borderWidth + SLOT_W_4R + borderWidth / 2;
-        const vertH = borderWidth + SLOT_H_4R + borderWidth;
+        const vertX_c = vBW_c + vSlotW_c + vBW_c / 2;
+        const vertH_c = vBW_c + vSlotH_c + vBW_c;
         ctx.beginPath();
-        ctx.moveTo(vertX, 0);
-        ctx.lineTo(vertX, vertH);
+        ctx.moveTo(vertX_c, 0);
+        ctx.lineTo(vertX_c, vertH_c);
         ctx.stroke();
         // Horizontal guide 1: between 4R row and 4-cut strip
-        const hGuide1Y = borderWidth + SLOT_H_4R + borderWidth;
+        const hGuide1Y_c = vBW_c + vSlotH_c + vBW_c;
         ctx.beginPath();
-        ctx.moveTo(0, hGuide1Y);
-        ctx.lineTo(comboW, hGuide1Y);
+        ctx.moveTo(0, hGuide1Y_c);
+        ctx.lineTo(comboW_c, hGuide1Y_c);
         ctx.stroke();
         // Horizontal guide 2: above bottom logo
-        const hGuide2Y =
-          borderWidth + SLOT_H_4R + borderWidth * 2 + smallH + borderWidth;
+        const hGuide2Y_c = vBW_c + vSlotH_c + vBW_c * 2 + smallH_c + vBW_c;
         ctx.beginPath();
-        ctx.moveTo(0, hGuide2Y);
-        ctx.lineTo(comboW, hGuide2Y);
+        ctx.moveTo(0, hGuide2Y_c);
+        ctx.lineTo(comboW_c, hGuide2Y_c);
         ctx.stroke();
         ctx.restore();
       }
