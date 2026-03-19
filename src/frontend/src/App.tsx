@@ -1510,6 +1510,19 @@ export default function App() {
         ctx.restore();
       }
 
+      // Draw outer frame border line (visible in saved image even on white background)
+      ctx.save();
+      ctx.strokeStyle = "rgba(80,80,80,0.7)";
+      ctx.lineWidth = 1.5 / scale;
+      ctx.setLineDash([]);
+      ctx.strokeRect(
+        0.75 / scale,
+        0.75 / scale,
+        compRect.width - 1.5 / scale,
+        compRect.height - 1.5 / scale,
+      );
+      ctx.restore();
+
       // Use synchronous toDataURL to stay within the user gesture chain on Android WebView.
       // toDataURL and toBlob produce identical quality at the same JPEG quality setting.
       const exportDataUrl = canvas.toDataURL("image/jpeg", 1.0);
