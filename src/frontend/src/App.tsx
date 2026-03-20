@@ -629,7 +629,9 @@ export default function App() {
   const isMobile = useIsMobile();
   const [mobileTab, setMobileTab] = useState<string>("");
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
-  const [language, setLanguage] = useState<Language>("en");
+  const [language, setLanguage] = useState<Language>(() => {
+    return (localStorage.getItem("sona_language") as Language) || "en";
+  });
   const t = (key: string): string => translations[language][key] ?? key;
 
   // Frame
@@ -674,15 +676,41 @@ export default function App() {
   const [saveNameDialogOpen, setSaveNameDialogOpen] = useState(false);
   const [saveNameInput, setSaveNameInput] = useState("sona-studio-project");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsPhotoPrefix, setSettingsPhotoPrefix] = useState("sona-studio");
-  const [settingsProjectPrefix, setSettingsProjectPrefix] = useState(
-    "sona-studio-project",
+  const [settingsPhotoPrefix, setSettingsPhotoPrefix] = useState(() => {
+    return localStorage.getItem("sona_photoPrefix") || "sona-studio";
+  });
+  const [settingsProjectPrefix, setSettingsProjectPrefix] = useState(() => {
+    return localStorage.getItem("sona_projectPrefix") || "sona-studio-project";
+  });
+  const [settingsIncludePhotos, setSettingsIncludePhotos] = useState(() => {
+    return localStorage.getItem("sona_includePhotos") === "true";
+  });
+  const [settingsSaveFormat, setSettingsSaveFormat] = useState<"jpeg" | "png">(
+    () => {
+      return (
+        (localStorage.getItem("sona_saveFormat") as "jpeg" | "png") || "jpeg"
+      );
+    },
   );
-  const [settingsIncludePhotos, setSettingsIncludePhotos] = useState(false);
   const [saveDirHandle, setSaveDirHandle] =
     useState<FileSystemDirectoryHandle | null>(null);
 
   // ── Layout change
+  const handleSettingsSave = useCallback(() => {
+    localStorage.setItem("sona_language", language);
+    localStorage.setItem("sona_photoPrefix", settingsPhotoPrefix);
+    localStorage.setItem("sona_projectPrefix", settingsProjectPrefix);
+    localStorage.setItem("sona_includePhotos", String(settingsIncludePhotos));
+    localStorage.setItem("sona_saveFormat", settingsSaveFormat);
+    setSettingsOpen(false);
+  }, [
+    language,
+    settingsPhotoPrefix,
+    settingsProjectPrefix,
+    settingsIncludePhotos,
+    settingsSaveFormat,
+  ]);
+
   const handleLayoutChange = useCallback(
     (l: LayoutType) => {
       const hasPhotos = slots.some((s) => s.imageUrl !== null);
@@ -1524,9 +1552,13 @@ export default function App() {
       ctx.restore();
 
       // Use synchronous toDataURL to stay within the user gesture chain on Android WebView.
-      // toDataURL and toBlob produce identical quality at the same JPEG quality setting.
-      const exportDataUrl = canvas.toDataURL("image/jpeg", 1.0);
-      const filename = `${settingsPhotoPrefix}-${Date.now()}.jpg`;
+      // PNG = lossless; JPEG at 1.0 = max quality compressed.
+      const isPng = settingsSaveFormat === "png";
+      const exportDataUrl = isPng
+        ? canvas.toDataURL("image/png")
+        : canvas.toDataURL("image/jpeg", 1.0);
+      const ext = isPng ? "png" : "jpg";
+      const filename = `${settingsPhotoPrefix}-${Date.now()}.${ext}`;
 
       if (saveDirHandle) {
         try {
@@ -1709,6 +1741,35 @@ export default function App() {
             <div className="flex items-center justify-between gap-3">
               <div>
                 <Label className="text-sm font-medium">
+                  {language === "ko" ? "저장 화질 형식" : "Save Image Format"}
+                </Label>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {language === "ko"
+                    ? "PNG: 무손실 고화질 (파일 크기 큼) / JPEG: 최고품질 압축 (파일 크기 작음)"
+                    : "PNG: lossless quality (larger file) / JPEG: max-quality compressed (smaller file)"}
+                </p>
+              </div>
+              <div className="flex gap-1 bg-muted rounded-lg p-0.5">
+                <button
+                  type="button"
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${settingsSaveFormat === "jpeg" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                  onClick={() => setSettingsSaveFormat("jpeg")}
+                >
+                  JPEG
+                </button>
+                <button
+                  type="button"
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${settingsSaveFormat === "png" ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"}`}
+                  onClick={() => setSettingsSaveFormat("png")}
+                >
+                  PNG
+                </button>
+              </div>
+            </div>
+            <Separator />
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <Label className="text-sm font-medium">
                   {language === "ko"
                     ? "프로젝트에 사진 포함"
                     : "Include Photos in Project"}
@@ -1804,6 +1865,16 @@ export default function App() {
               </div>
             )}
           </div>
+          <div className="flex justify-end pt-2 mt-2 border-t border-border">
+            <button
+              type="button"
+              data-ocid="settings.confirm_button"
+              onClick={handleSettingsSave}
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-md text-sm font-medium hover:opacity-90 transition-opacity"
+            >
+              {language === "ko" ? "확인" : "Confirm"}
+            </button>
+          </div>
         </DialogContent>
       </Dialog>
       <input
@@ -1850,7 +1921,11 @@ export default function App() {
             <button
               type="button"
               data-ocid="header.language_toggle"
-              onClick={() => setLanguage((l) => (l === "en" ? "ko" : "en"))}
+              onClick={() => {
+                const newLang = language === "en" ? "ko" : "en";
+                setLanguage(newLang);
+                localStorage.setItem("sona_language", newLang);
+              }}
               className="px-2.5 py-1 rounded-full border border-border text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-accent transition-all tracking-wider"
             >
               {t("langToggle")}
